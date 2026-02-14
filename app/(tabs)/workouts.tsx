@@ -1,15 +1,15 @@
 import React from "react";
 import { Text, StyleSheet } from "react-native";
-import { Screen } from "../src/components/Screen";
-import { Card } from "../src/components/Card";
-import { theme } from "../src/constants/theme";
+import { Screen } from "../../src/components/Screen";
+import { Card } from "../../src/components/Card";
+import { theme } from "../../src/constants/theme";
 
-export default function ModalScreen() {
+export default function WorkoutsScreen() {
   return (
     <Screen>
       <Card>
-        <Text style={styles.title}>Modal</Text>
-        <Text style={styles.sub}>This is a placeholder modal.</Text>
+        <Text style={styles.title}>Workouts</Text>
+        <Text style={styles.sub}>Coming next.</Text>
       </Card>
     </Screen>
   );

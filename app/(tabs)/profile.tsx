@@ -11,6 +11,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 
@@ -19,7 +20,8 @@ import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
 
-import { getMe, updateProfile, logout, ApiError } from "../../src/lib/api";
+import { updateProfile, ApiError } from "../../src/lib/api";
+import { useSession } from "../../src/session/SessionContext";
 
 type ProfileDraft = {
   firstName: string;
@@ -33,6 +35,8 @@ type ProfileDraft = {
 };
 
 export default function ProfileScreen() {
+  const { user, refresh, signOut } = useSession();
+
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [hydrating, setHydrating] = useState(true);
@@ -48,39 +52,21 @@ export default function ProfileScreen() {
 
   const [faceIdEnabled, setFaceIdEnabled] = useState(false);
 
-  // Hydrate from backend
+  // Hydrate draft from session user (single source of truth)
   useEffect(() => {
-    let mounted = true;
+    setHydrating(true);
 
-    (async () => {
-      setHydrating(true);
-      try {
-        // Updated api.ts: getMe() returns User
-        const user = await getMe();
-        if (!mounted) return;
+    setDraft((p) => ({
+      ...p,
+      firstName: user?.firstName ?? "",
+      lastName: user?.lastName ?? "",
+      username: user?.username ?? "",
+      email: user?.email ?? "",
+      // phone/bio not in backend yet (keep local)
+    }));
 
-        setDraft((p) => ({
-          ...p,
-          firstName: user?.firstName ?? "",
-          lastName: user?.lastName ?? "",
-          username: user?.username ?? "",
-          email: user?.email ?? "",
-          // phone/bio not in backend yet (keep local)
-        }));
-      } catch (e: any) {
-        // Central handler in _layout.tsx will redirect; just show message if useful
-        const msg = e instanceof ApiError ? e.message : "Please log in again.";
-        Alert.alert("Session issue", msg);
-      } finally {
-        if (!mounted) return;
-        setHydrating(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    setHydrating(false);
+  }, [user]);
 
   const initials = useMemo(() => {
     const a = (draft.firstName || "").trim();
@@ -138,26 +124,19 @@ export default function ProfileScreen() {
 
     setBusy(true);
     try {
-      // Updated api.ts: updateProfile() returns User
-      const updatedUser = await updateProfile({
+      await updateProfile({
         firstName: draft.firstName.trim(),
         lastName: draft.lastName.trim(),
         username: draft.username.trim(),
       });
 
-      setDraft((p) => ({
-        ...p,
-        firstName: updatedUser?.firstName ?? p.firstName,
-        lastName: updatedUser?.lastName ?? p.lastName,
-        username: updatedUser?.username ?? p.username,
-        email: updatedUser?.email ?? p.email,
-      }));
+      // pull fresh user into SessionContext
+      await refresh();
 
       Alert.alert("Saved", "Profile updated.");
     } catch (e: any) {
       if (e instanceof ApiError) {
         if (e.status === 401) {
-          // _layout.tsx handler will redirect; avoid double navigation here
           Alert.alert("Session expired", "Please log in again.");
           return;
         }
@@ -180,9 +159,17 @@ export default function ProfileScreen() {
     Alert.alert("Change Password", "Not implemented yet.");
   }
 
-  async function signOut() {
-    // logout() now triggers the global redirect via onUnauthorized
-    await logout();
+  async function confirmSignOut() {
+    Alert.alert("Sign out?", "You’ll need to sign in again on this device.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: async () => {
+          await signOut();
+        },
+      },
+    ]);
   }
 
   return (
@@ -309,7 +296,13 @@ export default function ProfileScreen() {
                 />
               </View>
               <Divider />
-              <Row title="Sign out" subtitle="End your session on this device" onPress={signOut} action="Sign out" danger />
+              <Row
+                title="Sign out"
+                subtitle="End your session on this device"
+                onPress={confirmSignOut}
+                action="Sign out"
+                danger
+              />
             </Card>
           </View>
 
@@ -382,15 +375,18 @@ function Row({
   danger?: boolean;
 }) {
   return (
-    <View style={styles.row}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]}
+      hitSlop={10}
+    >
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowTitle, danger && { color: theme.colors.danger }]}>{title}</Text>
         <Text style={styles.rowSub}>{subtitle}</Text>
       </View>
-      <Text onPress={onPress} style={[styles.rowAction, danger && { color: theme.colors.danger }]}>
-        {action}
-      </Text>
-    </View>
+
+      <Text style={[styles.rowAction, danger && { color: theme.colors.danger }]}>{action}</Text>
+    </Pressable>
   );
 }
 

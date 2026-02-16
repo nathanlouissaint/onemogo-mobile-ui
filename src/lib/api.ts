@@ -217,8 +217,9 @@ export async function updateProfile(payload: {
 
 /**
  * LOGOUT
+ * IMPORTANT: logout should NOT trigger onUnauthorized.
+ * onUnauthorized is reserved for 401/session-expired situations.
  */
 export async function logout() {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
-  onUnauthorized?.();
 }

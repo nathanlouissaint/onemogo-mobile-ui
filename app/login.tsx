@@ -1,11 +1,13 @@
+// app/login.tsx
 import React, { useState } from "react";
 import { Text, StyleSheet, TextInput, View, ActivityIndicator } from "react-native";
+import { router } from "expo-router";
+
 import { Screen } from "../src/components/Screen";
 import { Card } from "../src/components/Card";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { theme } from "../src/constants/theme";
-import { router } from "expo-router";
-import { login } from "../src/lib/api"; // adjust if path differs
+import { login } from "../src/lib/api";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("test1@example.com");
@@ -16,7 +18,7 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     setError(null);
 
-    if (!email || !password) {
+    if (!email.trim() || !password.trim()) {
       setError("Email and password are required.");
       return;
     }
@@ -24,7 +26,7 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      await login(email.trim().toLowerCase(), password);
+      await login(email.trim().toLowerCase(), password.trim());
       router.replace("/(tabs)");
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
@@ -69,6 +71,15 @@ export default function LoginScreen() {
             disabled={loading}
           />
           {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
+
+          <View style={{ height: 12 }} />
+
+          {/* NEW: registration CTA */}
+          <PrimaryButton
+            label="Create account"
+            onPress={() => router.replace("/register")}
+            disabled={loading}
+          />
         </View>
       </Card>
     </Screen>

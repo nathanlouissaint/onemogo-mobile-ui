@@ -13,16 +13,13 @@ import {
   Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { router } from "expo-router";
 
 import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
 
-// ✅ app/(tabs)/profile.tsx -> ../../lib/api (root/lib/api.ts)
-import { getMe, updateProfile, logout } from "../../src/lib/api";
-
+import { getMe, updateProfile, logout, ApiError } from "../../src/lib/api";
 
 type ProfileDraft = {
   firstName: string;
@@ -58,10 +55,8 @@ export default function ProfileScreen() {
     (async () => {
       setHydrating(true);
       try {
-        // api.ts: getMe() returns { user: any }
-        const me = await getMe();
-        const user = me?.user;
-
+        // Updated api.ts: getMe() returns User
+        const user = await getMe();
         if (!mounted) return;
 
         setDraft((p) => ({
@@ -73,10 +68,9 @@ export default function ProfileScreen() {
           // phone/bio not in backend yet (keep local)
         }));
       } catch (e: any) {
-        // Hard reset session on any auth failure
-        await logout();
-        Alert.alert("Session expired", "Please log in again.");
-        router.replace("/login");
+        // Central handler in _layout.tsx will redirect; just show message if useful
+        const msg = e instanceof ApiError ? e.message : "Please log in again.";
+        Alert.alert("Session issue", msg);
       } finally {
         if (!mounted) return;
         setHydrating(false);
@@ -133,7 +127,6 @@ export default function ProfileScreen() {
   }
 
   async function saveChanges() {
-    // Backend-supported fields only
     if (!draft.firstName.trim() || !draft.lastName.trim()) {
       Alert.alert("Missing name", "Please enter your first and last name.");
       return;
@@ -145,14 +138,12 @@ export default function ProfileScreen() {
 
     setBusy(true);
     try {
-      // api.ts: updateProfile() returns { user: any }
-      const res = await updateProfile({
+      // Updated api.ts: updateProfile() returns User
+      const updatedUser = await updateProfile({
         firstName: draft.firstName.trim(),
         lastName: draft.lastName.trim(),
         username: draft.username.trim(),
       });
-
-      const updatedUser = res?.user;
 
       setDraft((p) => ({
         ...p,
@@ -164,21 +155,22 @@ export default function ProfileScreen() {
 
       Alert.alert("Saved", "Profile updated.");
     } catch (e: any) {
-      const msg = e?.message ?? "Update failed";
-
-      if (msg.toLowerCase().includes("username")) {
-        Alert.alert("Username unavailable", msg);
+      if (e instanceof ApiError) {
+        if (e.status === 401) {
+          // _layout.tsx handler will redirect; avoid double navigation here
+          Alert.alert("Session expired", "Please log in again.");
+          return;
+        }
+        const msg = e.message || "Update failed";
+        if (msg.toLowerCase().includes("username")) {
+          Alert.alert("Username unavailable", msg);
+          return;
+        }
+        Alert.alert("Error", msg);
         return;
       }
 
-      if (msg.toLowerCase().includes("not authenticated")) {
-        await logout();
-        Alert.alert("Session expired", "Please log in again.");
-        router.replace("/login");
-        return;
-      }
-
-      Alert.alert("Error", msg);
+      Alert.alert("Error", e?.message ?? "Update failed");
     } finally {
       setBusy(false);
     }
@@ -189,8 +181,8 @@ export default function ProfileScreen() {
   }
 
   async function signOut() {
+    // logout() now triggers the global redirect via onUnauthorized
     await logout();
-    router.replace("/login");
   }
 
   return (

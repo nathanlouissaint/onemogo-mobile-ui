@@ -1,48 +1,54 @@
+// src/hooks/useAuth.ts
 import { useEffect, useState } from "react";
-import * as auth from "../lib/auth";
+import * as api from "../lib/api";
 
-type User = {
-  id: string;
-  email: string;
-  createdAt: string;
-};
+export type User = api.User;
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    api.setOnUnauthorized(() => {
+      setUser(null);
+    });
+
     bootstrap();
   }, []);
 
   async function bootstrap() {
     try {
-      const token = await auth.getStoredToken();
-      if (token) {
-        // Later you’ll verify token with backend
-        console.log("Found stored token");
-      }
-    } catch (err) {
-      console.log("Bootstrap error:", err);
+      const me = await api.getMe();
+      setUser(me);
+    } catch {
+      setUser(null);
     } finally {
       setLoading(false);
     }
   }
 
   async function login(email: string, password: string) {
-    const loggedInUser = await auth.login(email, password);
+    const loggedInUser = await api.login(email, password);
     setUser(loggedInUser);
+    return loggedInUser;
+  }
+
+  async function register(payload: {
+    email: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+    username?: string;
+  }) {
+    const newUser = await api.register(payload);
+    setUser(newUser);
+    return newUser;
   }
 
   async function logout() {
-    await auth.logout();
+    await api.logout();
     setUser(null);
   }
 
-  return {
-    user,
-    loading,
-    login,
-    logout,
-  };
+  return { user, loading, login, register, logout };
 }

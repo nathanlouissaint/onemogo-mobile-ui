@@ -1,26 +1,78 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+// app/(tabs)/index.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { router } from "expo-router";
+
 import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
 
+import { getWorkouts, WorkoutSession, ApiError } from "../../src/lib/api";
+import { useSession } from "../../src/session/SessionContext";
+
+function formatActivityType(v?: string | null) {
+  if (!v) return "—";
+  const s = String(v).toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export default function HomeScreen() {
-  const data = {
-    name: "Nate",
-    streak: 6,
-    weeklyWorkouts: 4,
-    minutesThisWeek: 138,
-    weeklyGoalMin: 180,
-    todayWorkout: {
-      title: "Upper Body Strength",
-      durationMin: 45,
-      difficulty: "Moderate",
-    },
-  };
+  const { user } = useSession();
+
+  const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Placeholder metrics for now (replace later with real endpoints)
+  const data = useMemo(() => {
+    return {
+      name: user?.firstName || user?.username || "—",
+      streak: 6,
+      weeklyWorkouts: 4,
+      minutesThisWeek: 138,
+      weeklyGoalMin: 180,
+    };
+  }, [user]);
 
   const progress = Math.min(1, data.minutesThisWeek / data.weeklyGoalMin);
   const pct = Math.round(progress * 100);
+
+  const fetchWorkouts = async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const list = await getWorkouts();
+      setWorkouts(list || []);
+    } catch (e: any) {
+      const msg =
+        e instanceof ApiError ? e.message : (e?.message ?? "Failed to load workouts");
+      setErr(msg.toString());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWorkouts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Today workout session = first session for now
+  const today = workouts?.[0];
+
+  const onStart = () => {
+    if (!today?.id) return;
+
+    router.push({
+      pathname: "/workout/[id]",
+      params: { id: String(today.id) },
+    });
+  };
+
+  const todayTitle =
+    (today?.title && String(today.title).trim()) ||
+    (today?.activityType ? `${formatActivityType(today.activityType)} session` : "Workout session");
 
   return (
     <Screen>
@@ -67,20 +119,58 @@ export default function HomeScreen() {
 
       {/* Today */}
       <Card style={styles.today}>
-        <Text style={styles.section}>Today</Text>
-
-        <View style={styles.todayRow}>
-          <Text style={styles.workoutTitle}>{data.todayWorkout.title}</Text>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{data.todayWorkout.difficulty}</Text>
-          </View>
+        <View style={styles.todayHeaderRow}>
+          <Text style={styles.section}>Today</Text>
+          {loading ? (
+            <View style={styles.todayStatus}>
+              <ActivityIndicator />
+            </View>
+          ) : null}
         </View>
 
-        <Text style={styles.meta}>{data.todayWorkout.durationMin} minutes</Text>
+        {/* Error */}
+        {!loading && err ? (
+          <>
+            <Text style={styles.errorText}>{err}</Text>
+            <View style={{ marginTop: theme.spacing.md }}>
+              <PrimaryButton label="Retry" onPress={fetchWorkouts} />
+            </View>
+          </>
+        ) : null}
 
-        <View style={{ marginTop: theme.spacing.md }}>
-          <PrimaryButton label="Start Workout" onPress={() => {}} />
-        </View>
+        {/* Empty */}
+        {!loading && !err && !today ? (
+          <>
+            <Text style={styles.meta}>No workout sessions available yet.</Text>
+            <View style={{ marginTop: theme.spacing.md }}>
+              <PrimaryButton label="Refresh" onPress={fetchWorkouts} />
+            </View>
+          </>
+        ) : null}
+
+        {/* Loaded */}
+        {!loading && !err && today ? (
+          <>
+            <View style={styles.todayRow}>
+              <Text style={styles.workoutTitle}>{todayTitle}</Text>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {today.activityType ? formatActivityType(today.activityType) : "—"}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.meta}>
+              {typeof today.durationMin === "number"
+                ? `${today.durationMin} minutes`
+                : "Duration —"}
+            </Text>
+
+            <View style={{ marginTop: theme.spacing.md }}>
+              <PrimaryButton label="Start Workout" onPress={onStart} />
+            </View>
+          </>
+        ) : null}
       </Card>
     </Screen>
   );
@@ -88,19 +178,49 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   header: { marginBottom: theme.spacing.lg },
-  kicker: { color: theme.colors.textFaint, fontSize: theme.font.size.sm, fontWeight: "700" },
-  title: { color: theme.colors.text, fontSize: theme.font.size.xxl, fontWeight: "900", marginTop: 8 },
-  sub: { color: theme.colors.textMuted, marginTop: 10, fontSize: theme.font.size.md },
+  kicker: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.sm,
+    fontWeight: "700",
+  },
+  title: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.xxl,
+    fontWeight: "900",
+    marginTop: 8,
+  },
+  sub: {
+    color: theme.colors.textMuted,
+    marginTop: 10,
+    fontSize: theme.font.size.md,
+  },
 
   row: { flexDirection: "row", gap: theme.spacing.sm },
   half: { flex: 1 },
 
-  label: { color: theme.colors.textFaint, fontSize: theme.font.size.sm, fontWeight: "700" },
-  value: { color: theme.colors.text, fontSize: theme.font.size.xl, fontWeight: "900", marginTop: 10 },
-  meta: { color: theme.colors.textMuted, marginTop: 6, fontSize: theme.font.size.sm },
+  label: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.sm,
+    fontWeight: "700",
+  },
+  value: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.xl,
+    fontWeight: "900",
+    marginTop: 10,
+  },
+  meta: {
+    color: theme.colors.textMuted,
+    marginTop: 6,
+    fontSize: theme.font.size.sm,
+  },
 
   progress: { marginTop: theme.spacing.sm },
-  progressTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  progressTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
   pill: {
     backgroundColor: "rgba(10,132,255,0.14)",
     borderWidth: 1,
@@ -120,12 +240,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+
+  // Ensure theme.colors.accent exists; otherwise replace with theme.colors.primary.
   fill: { height: "100%", backgroundColor: theme.colors.accent },
 
   today: { marginTop: theme.spacing.lg },
-  section: { color: theme.colors.textFaint, fontSize: theme.font.size.sm, fontWeight: "800" },
-  todayRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
-  workoutTitle: { color: theme.colors.text, fontSize: theme.font.size.lg, fontWeight: "900", flex: 1, paddingRight: 10 },
+  todayHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  todayStatus: { paddingLeft: 12 },
+
+  section: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
+  todayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 10,
+  },
+  workoutTitle: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.lg,
+    fontWeight: "900",
+    flex: 1,
+    paddingRight: 10,
+  },
   badge: {
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
@@ -134,5 +278,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
   },
-  badgeText: { color: theme.colors.textMuted, fontSize: theme.font.size.sm, fontWeight: "800" },
+  badgeText: {
+    color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
+
+  errorText: {
+    marginTop: 10,
+    color: "#ff6b6b",
+    fontWeight: "800",
+  },
 });

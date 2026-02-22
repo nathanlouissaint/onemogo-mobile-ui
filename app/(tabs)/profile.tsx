@@ -35,7 +35,7 @@ type ProfileDraft = {
 };
 
 export default function ProfileScreen() {
-  const { user, refresh, signOut } = useSession();
+  const { user, refresh, logout } = useSession();
 
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -166,7 +166,7 @@ export default function ProfileScreen() {
         text: "Sign out",
         style: "destructive",
         onPress: async () => {
-          await signOut();
+          await logout();
         },
       },
     ]);

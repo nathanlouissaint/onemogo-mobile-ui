@@ -1,12 +1,21 @@
+// src/lib/api.ts
 import * as SecureStore from "expo-secure-store";
 
-type User = {
+export type User = {
   id: string;
   email: string;
   firstName?: string | null;
   lastName?: string | null;
   username?: string | null;
   createdAt: string;
+
+  // Onboarding fields
+  onboardingCompletedAt?: string | null;
+  goal?: string | null;
+  trainingDaysPerWeek?: number | null;
+  strengthTrackingMode?: string | null;
+  experienceLevel?: string | null;
+  baselineWeight?: number | null;
 };
 
 type ApiErrorShape = {
@@ -37,13 +46,23 @@ export class ApiError extends Error implements ApiErrorShape {
 }
 
 // Prefer env configuration (Expo: EXPO_PUBLIC_* variables)
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000/api"; // dev fallback only
+// IMPORTANT: localhost will NOT work on a physical device. Set EXPO_PUBLIC_API_URL to your LAN IP.
+const RAW_API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
+
+// Normalize (avoid trailing slash causing //auth/login)
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, "");
+
+if (API_BASE_URL.includes("localhost")) {
+  console.warn(
+    "[api] API_BASE_URL is set to localhost. This will fail on a physical device. Set EXPO_PUBLIC_API_URL (e.g., http://192.168.x.x:4000)."
+  );
+}
 
 const TOKEN_KEY = "auth_token";
 
 let onUnauthorized: (() => void) | null = null;
-/** Optional: app can register a handler to redirect to login, clear state, etc. */
+/** Optional: app can register a handler to clear state, redirect, etc. */
 export function setOnUnauthorized(handler: (() => void) | null) {
   onUnauthorized = handler;
 }
@@ -107,11 +126,17 @@ async function request<T>(args: {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const url = `${API_BASE_URL}${path}`;
+    console.log("[api] =>", options.method ?? "GET", url);
+    console.log("[api] FETCH START", url);
+
+    const res = await fetch(url, {
       ...options,
       headers,
       signal: controller.signal,
     });
+
+    console.log("[api] FETCH DONE", url, res.status);
 
     const { data, raw } = await safeParseBody(res);
 
@@ -149,7 +174,7 @@ async function request<T>(args: {
   }
 }
 
-// Convenience wrappers to avoid the requireAuth footgun
+// Convenience wrappers
 const requestPublic = <T>(path: string, options?: RequestInit) =>
   request<T>({ path, options, requireAuth: false });
 
@@ -163,7 +188,7 @@ export async function login(email: string, password: string): Promise<User> {
   const data = await requestPublic<{
     token: string;
     user: User;
-  }>("/auth/login", {
+  }>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
@@ -182,7 +207,7 @@ export async function register(payload: {
   const data = await requestPublic<{
     token: string;
     user: User;
-  }>("/auth/register", {
+  }>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -192,10 +217,28 @@ export async function register(payload: {
 }
 
 /**
+ * ONBOARDING
+ */
+export async function submitOnboarding(payload: {
+  goal: string;
+  trainingDaysPerWeek: number;
+  strengthTrackingMode: "prs" | "volume" | "both";
+  experienceLevel: "beginner" | "intermediate" | "advanced";
+  baselineWeight: number;
+}): Promise<User> {
+  const data = await requestAuth<{ user: User }>("/api/onboarding", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  return data.user;
+}
+
+/**
  * SESSION
  */
 export async function getMe(): Promise<User> {
-  const data = await requestAuth<{ user: User }>("/me");
+  const data = await requestAuth<{ user: User }>("/api/me");
   return data.user;
 }
 
@@ -207,7 +250,7 @@ export async function updateProfile(payload: {
   lastName?: string;
   username?: string;
 }): Promise<User> {
-  const data = await requestAuth<{ user: User }>("/me", {
+  const data = await requestAuth<{ user: User }>("/api/me", {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -216,9 +259,52 @@ export async function updateProfile(payload: {
 }
 
 /**
+ * WORKOUT SESSIONS
+ */
+export type WorkoutSession = {
+  id: string;
+  userId?: string;
+  activityType?: "LIFTING" | "CYCLING" | "SWIMMING" | string;
+  title?: string | null;
+  durationMin?: number | null;
+  metrics?: any;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function getWorkouts(): Promise<WorkoutSession[]> {
+  const data = await requestAuth<any>("/api/workout-sessions");
+
+  if (Array.isArray(data?.sessions)) return data.sessions as WorkoutSession[];
+  if (Array.isArray(data)) return data as WorkoutSession[];
+  return [];
+}
+
+export async function getWorkout(id: string): Promise<WorkoutSession> {
+  const data = await requestAuth<any>(
+    `/api/workout-sessions/${encodeURIComponent(id)}`
+  );
+  if (data?.session) return data.session as WorkoutSession;
+  return data as WorkoutSession;
+}
+
+/**
+ * COMPLETE WORKOUT
+ * Backend does not implement this route yet. Keep this as a hard fail so it’s obvious.
+ */
+export async function completeWorkout(id: string) {
+  throw new ApiError({
+    status: 0,
+    message:
+      "Not implemented: backend has no /workout-sessions/:id/complete endpoint",
+    path: `/api/workout-sessions/${id}/complete`,
+  });
+}
+
+/**
  * LOGOUT
- * IMPORTANT: logout should NOT trigger onUnauthorized.
- * onUnauthorized is reserved for 401/session-expired situations.
  */
 export async function logout() {
   await SecureStore.deleteItemAsync(TOKEN_KEY);

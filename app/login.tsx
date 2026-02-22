@@ -14,7 +14,6 @@ import { Screen } from "../src/components/Screen";
 import { Card } from "../src/components/Card";
 import { PrimaryButton } from "../src/components/PrimaryButton";
 import { theme } from "../src/constants/theme";
-import { login } from "../src/lib/api";
 import { useSession } from "../src/session/SessionContext";
 
 function isValidEmail(v: string) {
@@ -22,20 +21,23 @@ function isValidEmail(v: string) {
 }
 
 export default function LoginScreen() {
-  const { signIn } = useSession();
+  const { login } = useSession();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const [showPassword, setShowPassword] = useState(false);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
 
   const canSubmit = useMemo(() => {
-    return isValidEmail(normalizedEmail) && password.trim().length > 0 && !loading;
+    return (
+      isValidEmail(normalizedEmail) &&
+      password.trim().length > 0 &&
+      !loading
+    );
   }, [normalizedEmail, password, loading]);
 
   const handleLogin = async () => {
@@ -45,23 +47,20 @@ export default function LoginScreen() {
       setError("Enter a valid email address.");
       return;
     }
+
     if (!password.trim()) {
       setError("Password is required.");
       return;
     }
 
     setLoading(true);
+
     try {
-      const user = await login(normalizedEmail, password.trim());
-      signIn(user);
-      // Root guard handles navigation
+      await login(normalizedEmail, password.trim());
+      // Root layout guard handles navigation
     } catch (e: any) {
       const msg = (e?.message ?? "Login failed").toString();
-      if (msg.toLowerCase().includes("not authenticated")) {
-        setError("Incorrect email or password.");
-      } else {
-        setError(msg);
-      }
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -73,7 +72,7 @@ export default function LoginScreen() {
         <Text style={styles.title}>ONEMOGO</Text>
         <Text style={styles.sub}>Sign in to continue.</Text>
 
-        <View style={{ gap: 12 }}>
+        <View style={styles.form}>
           <TextInput
             value={email}
             onChangeText={(v) => {
@@ -98,23 +97,29 @@ export default function LoginScreen() {
               placeholder="Password"
               placeholderTextColor={theme.colors.textMuted}
               secureTextEntry={!showPassword}
-              style={[styles.input, { flex: 1 }]}
+              style={[styles.input, styles.passwordInput]}
               editable={!loading}
             />
 
             <Pressable
               onPress={() => setShowPassword((p) => !p)}
               disabled={loading}
-              style={({ pressed }) => [styles.toggleBtn, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [
+                styles.toggleBtn,
+                pressed && { opacity: 0.8 },
+              ]}
+              hitSlop={10}
             >
-              <Text style={styles.toggleBtnText}>{showPassword ? "Hide" : "Show"}</Text>
+              <Text style={styles.toggleBtnText}>
+                {showPassword ? "Hide" : "Show"}
+              </Text>
             </Pressable>
           </View>
         </View>
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <View style={{ marginTop: 16 }}>
+        <View style={styles.actions}>
           <PrimaryButton
             label={loading ? "Signing in..." : "Continue"}
             onPress={handleLogin}
@@ -127,7 +132,7 @@ export default function LoginScreen() {
 
           <PrimaryButton
             label="Create account"
-            onPress={() => router.replace("/register")}
+            onPress={() => router.push("/register")}
             disabled={loading}
           />
         </View>
@@ -137,42 +142,57 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { color: theme.colors.text, fontSize: 28, fontWeight: "900" },
-  sub: { color: theme.colors.textMuted, marginTop: 8, marginBottom: 16 },
-
-  input: {
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  title: {
+    fontSize: 28,
+    fontWeight: "800",
     color: theme.colors.text,
+    marginBottom: 6,
   },
-
+  sub: {
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    marginBottom: 16,
+  },
+  form: {
+    gap: 12,
+  },
+  input: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    color: theme.colors.text,
+    backgroundColor: theme.colors.card,
+  },
   passwordRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-
+  passwordInput: {
+    flex: 1,
+  },
   toggleBtn: {
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    height: 48,
+    alignItems: "center",
     justifyContent: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.card,
   },
-
   toggleBtnText: {
-    color: theme.colors.textMuted,
-    fontWeight: "900",
-    fontSize: 12,
+    color: theme.colors.text,
+    fontWeight: "600",
   },
-
   error: {
-    color: "#ff6b6b",
     marginTop: 12,
-    fontWeight: "700",
+    color: theme.colors.danger ?? "#ff3b30",
+    fontSize: 13,
+  },
+  actions: {
+    marginTop: 16,
   },
 });

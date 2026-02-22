@@ -6,24 +6,13 @@ import { StatusBar } from "expo-status-bar";
 
 import { useColorScheme } from "../src/hooks/use-color-scheme";
 import { SessionProvider, useSession } from "../src/session/SessionContext";
-import { setOnUnauthorized } from "../src/lib/api";
 
 function RootLayoutInner() {
   const colorScheme = useColorScheme();
   const router = useRouter();
   const pathname = usePathname();
 
-  const { user, loading, signOut } = useSession();
-
-  // Centralized 401/session-expired handler from api.ts
-  useEffect(() => {
-    setOnUnauthorized(() => {
-      // Clear session state. Routing guard will redirect to /login.
-      signOut().catch(() => {});
-    });
-
-    return () => setOnUnauthorized(null);
-  }, [signOut]);
+  const { user, loading } = useSession();
 
   // Routing guard (single source of navigation truth)
   useEffect(() => {

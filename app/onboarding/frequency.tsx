@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+// app/onboarding/frequency.tsx
+import React, { useEffect, useMemo, useState } from "react";
 import { Text, View, TextInput, StyleSheet } from "react-native";
 import { router } from "expo-router";
 
@@ -7,10 +8,15 @@ import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
 import { useOnboarding } from "../../src/onboarding/OnboardingContext";
+import { BackToLogin } from "../../src/components/BackToLogin";
 
 export default function FrequencyScreen() {
   const { draft, setDays } = useOnboarding();
   const [raw, setRaw] = useState(draft.trainingDaysPerWeek?.toString() ?? "");
+
+  useEffect(() => {
+    if (!draft.goal) router.replace("/onboarding/goal");
+  }, [draft.goal]);
 
   const days = useMemo(() => {
     const n = Number(raw);
@@ -45,6 +51,9 @@ export default function FrequencyScreen() {
 
         <View style={{ height: 16 }} />
         <PrimaryButton label="Continue" onPress={onContinue} disabled={!valid} />
+
+        <View style={{ height: 10 }} />
+        <BackToLogin />
       </Card>
     </Screen>
   );

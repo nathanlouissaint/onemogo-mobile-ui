@@ -15,7 +15,7 @@ import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
 
-import { getWorkout, completeWorkout, ApiError } from "../../src/lib/api";
+import { getWorkout, ApiError } from "../../src/lib/api";
 
 // Local types so this screen does NOT depend on missing exports from api.ts
 type WorkoutExercise = {
@@ -51,7 +51,6 @@ export default function WorkoutDetailScreen() {
   }, [id]);
 
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [workout, setWorkout] = useState<WorkoutDetail | null>(null);
 
@@ -75,7 +74,9 @@ export default function WorkoutDetailScreen() {
       } catch (e: any) {
         if (!mounted) return;
         const msg =
-          e instanceof ApiError ? e.message : e?.message ?? "Failed to load workout";
+          e instanceof ApiError
+            ? e.message
+            : e?.message ?? "Failed to load workout";
         setErr(msg.toString());
       } finally {
         if (!mounted) return;
@@ -90,21 +91,11 @@ export default function WorkoutDetailScreen() {
 
   const exercises = workout?.exercises ?? [];
 
-  const onComplete = async () => {
-    if (!workoutId) return;
-
-    setSubmitting(true);
-    try {
-      await completeWorkout(workoutId);
-      Alert.alert("Completed", "Workout marked as complete.");
-      router.back();
-    } catch (e: any) {
-      const msg =
-        e instanceof ApiError ? e.message : e?.message ?? "Failed to complete workout";
-      Alert.alert("Error", msg.toString());
-    } finally {
-      setSubmitting(false);
-    }
+  const onComplete = () => {
+    Alert.alert(
+      "Not available yet",
+      "Workout completion isn't implemented yet. This button will be enabled once the backend supports it."
+    );
   };
 
   const onRetry = async () => {
@@ -177,7 +168,9 @@ export default function WorkoutDetailScreen() {
               <Text style={styles.section}>Exercises</Text>
 
               {exercises.length === 0 ? (
-                <Text style={styles.meta}>No exercises listed for this workout.</Text>
+                <Text style={styles.meta}>
+                  No exercises listed for this workout.
+                </Text>
               ) : (
                 <View style={{ marginTop: 10, gap: 10 }}>
                   {exercises.map((ex, idx) => (
@@ -186,14 +179,20 @@ export default function WorkoutDetailScreen() {
                         <Text style={styles.exerciseName}>{ex.name}</Text>
 
                         <Text style={styles.meta}>
-                          {typeof ex.sets === "number" ? `${ex.sets} sets` : "— sets"}
-                          {typeof ex.reps === "number" ? ` • ${ex.reps} reps` : ""}
+                          {typeof ex.sets === "number"
+                            ? `${ex.sets} sets`
+                            : "— sets"}
+                          {typeof ex.reps === "number"
+                            ? ` • ${ex.reps} reps`
+                            : ""}
                           {typeof ex.durationSeconds === "number"
                             ? ` • ${ex.durationSeconds}s`
                             : ""}
                         </Text>
 
-                        {ex.notes ? <Text style={styles.notes}>{ex.notes}</Text> : null}
+                        {ex.notes ? (
+                          <Text style={styles.notes}>{ex.notes}</Text>
+                        ) : null}
                       </View>
                     </View>
                   ))}
@@ -201,18 +200,9 @@ export default function WorkoutDetailScreen() {
               )}
 
               <View style={{ marginTop: theme.spacing.lg }}>
-                <PrimaryButton
-                  label={submitting ? "Completing..." : "Mark Complete"}
-                  onPress={onComplete}
-                  disabled={submitting}
-                  loading={submitting}
-                />
+                <PrimaryButton label="Mark Complete" onPress={onComplete} disabled />
                 <View style={{ height: 12 }} />
-                <PrimaryButton
-                  label="Back"
-                  onPress={() => router.back()}
-                  disabled={submitting}
-                />
+                <PrimaryButton label="Back" onPress={() => router.back()} />
               </View>
             </Card>
           </>
@@ -252,8 +242,17 @@ const styles = StyleSheet.create({
   },
 
   center: { alignItems: "center", paddingVertical: 10 },
-  section: { color: theme.colors.textFaint, fontSize: theme.font.size.sm, fontWeight: "800" },
-  body: { color: theme.colors.text, marginTop: 10, fontSize: theme.font.size.md, fontWeight: "700" },
+  section: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
+  body: {
+    color: theme.colors.text,
+    marginTop: 10,
+    fontSize: theme.font.size.md,
+    fontWeight: "700",
+  },
 
   meta: {
     color: theme.colors.textMuted,
@@ -271,6 +270,15 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface2,
   },
-  exerciseName: { color: theme.colors.text, fontSize: theme.font.size.md, fontWeight: "900" },
-  notes: { marginTop: 6, color: theme.colors.textMuted, fontSize: theme.font.size.sm, fontWeight: "700" },
+  exerciseName: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.md,
+    fontWeight: "900",
+  },
+  notes: {
+    marginTop: 6,
+    color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
+    fontWeight: "700",
+  },
 });

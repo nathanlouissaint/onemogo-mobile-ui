@@ -1,70 +1,27 @@
 // app/_layout.tsx
-import React, { useEffect } from "react";
+import React from "react";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack, usePathname, useRouter } from "expo-router";
+import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
 import { useColorScheme } from "../src/hooks/use-color-scheme";
-import { SessionProvider, useSession } from "../src/session/SessionContext";
-
-function RootLayoutInner() {
-  const colorScheme = useColorScheme();
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const { user, loading } = useSession();
-
-  // Routing guard (single source of navigation truth)
-  useEffect(() => {
-    if (loading) return;
-
-    const isPublic = pathname === "/login" || pathname === "/register";
-    const isRoot = pathname === "/" || pathname === "";
-    const authed = !!user;
-
-    if (!authed && !isPublic) {
-      router.replace("/login");
-      return;
-    }
-
-    if (authed && isPublic) {
-      router.replace("/(tabs)");
-      return;
-    }
-
-    if (!authed && isRoot) {
-      router.replace("/login");
-      return;
-    }
-
-    if (authed && isRoot) {
-      router.replace("/(tabs)");
-      return;
-    }
-  }, [loading, user, pathname, router]);
-
-  if (loading) return null;
-
-  return (
-    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="register" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="modal"
-          options={{ presentation: "modal", title: "Modal" }}
-        />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
-  );
-}
+import { SessionProvider } from "../src/session/SessionContext";
 
 export default function RootLayout() {
+  const colorScheme = useColorScheme();
+
   return (
     <SessionProvider>
-      <RootLayoutInner />
+      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="login" />
+          <Stack.Screen name="register" />
+          <Stack.Screen name="onboarding" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="modal" options={{ presentation: "modal" }} />
+        </Stack>
+        <StatusBar style="auto" />
+      </ThemeProvider>
     </SessionProvider>
   );
 }

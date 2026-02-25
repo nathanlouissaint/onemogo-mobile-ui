@@ -1,71 +1,224 @@
-import React, { useMemo } from "react";
-import { Text, View, Pressable, StyleSheet } from "react-native";
+// app/onboarding/experience.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Text,
+  View,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
 import { router } from "expo-router";
 
 import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
+
 import { useOnboarding, ExperienceLevel } from "../../src/onboarding/OnboardingContext";
+import { submitOnboarding, ApiError } from "../../src/lib/api";
+import { useSession } from "../../src/session/SessionContext";
+import { BackToLogin } from "../../src/components/BackToLogin";
 
 const LEVELS: { value: ExperienceLevel; title: string; desc: string }[] = [
-  { value: "beginner", title: "Beginner", desc: "New or inconsistent training." },
-  { value: "intermediate", title: "Intermediate", desc: "Consistent training, some progression." },
-  { value: "advanced", title: "Advanced", desc: "Years of training, structured programming." },
+  { value: "beginner", title: "Beginner", desc: "New or returning after a long break." },
+  { value: "intermediate", title: "Intermediate", desc: "Consistent training for months/years." },
+  { value: "advanced", title: "Advanced", desc: "Highly consistent with structured training." },
 ];
 
 export default function ExperienceScreen() {
-  const { draft, setExperience } = useOnboarding();
-  const canContinue = useMemo(() => Boolean(draft.experienceLevel), [draft.experienceLevel]);
+  const { draft, setExperience, setBaselineWeight, reset } = useOnboarding();
+  const { refresh } = useSession();
 
-  const onContinue = () => {
-    if (!draft.experienceLevel) return;
-    router.push("/onboarding/weight");
+  const [level, setLevel] = useState<ExperienceLevel | null>(draft.experienceLevel ?? null);
+  const [weightRaw, setWeightRaw] = useState(
+    typeof draft.baselineWeight === "number" ? String(draft.baselineWeight) : ""
+  );
+
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!draft.goal) {
+      router.replace("/onboarding/goal");
+      return;
+    }
+    if (typeof draft.trainingDaysPerWeek !== "number") {
+      router.replace("/onboarding/frequency");
+      return;
+    }
+    if (!draft.strengthTrackingMode) {
+      router.replace("/onboarding/strength-mode");
+      return;
+    }
+  }, [draft.goal, draft.trainingDaysPerWeek, draft.strengthTrackingMode]);
+
+  const weight = useMemo(() => {
+    const n = Number(weightRaw);
+    if (!Number.isFinite(n)) return null;
+    return n;
+  }, [weightRaw]);
+
+  const valid = useMemo(() => {
+    return (
+      !!draft.goal &&
+      typeof draft.trainingDaysPerWeek === "number" &&
+      !!draft.strengthTrackingMode &&
+      !!level &&
+      weight !== null &&
+      weight > 0
+    );
+  }, [draft.goal, draft.trainingDaysPerWeek, draft.strengthTrackingMode, level, weight]);
+
+  const onFinish = async () => {
+    setErr(null);
+    if (!valid || !level || weight === null) return;
+
+    setExperience(level);
+    setBaselineWeight(weight);
+
+    setSubmitting(true);
+    try {
+      await submitOnboarding({
+        goal: draft.goal!,
+        trainingDaysPerWeek: draft.trainingDaysPerWeek!,
+        strengthTrackingMode: draft.strengthTrackingMode!,
+        experienceLevel: level,
+        baselineWeight: weight,
+      });
+
+      await refresh();
+      reset();
+    } catch (e: any) {
+      const msg =
+        e instanceof ApiError ? e.message : e?.message ?? "Failed to finish onboarding";
+      setErr(msg.toString());
+      Alert.alert("Error", msg.toString());
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <Screen>
       <Card>
-        <Text style={styles.title}>Experience level</Text>
-        <Text style={styles.sub}>This helps us interpret strength progress correctly.</Text>
+        <Text style={styles.title}>Experience & baseline</Text>
+        <Text style={styles.sub}>We use this to personalize your dashboard.</Text>
 
         <View style={{ height: 12 }} />
 
-        <View style={{ gap: 10 }}>
-          {LEVELS.map((l) => {
-            const selected = draft.experienceLevel === l.value;
+        <Text style={styles.section}>Experience level</Text>
+        <View style={{ gap: 10, marginTop: 10 }}>
+          {LEVELS.map((o) => {
+            const selected = level === o.value;
+
             return (
               <Pressable
-                key={l.value}
-                onPress={() => setExperience(l.value)}
+                key={o.value}
+                onPress={() => setLevel(o.value)}
+                disabled={submitting}
                 style={({ pressed }) => [
                   styles.option,
-                  selected && styles.optionSelected,
-                  pressed && { opacity: 0.9 },
+                  (pressed || selected) && styles.optionActive,
+                  pressed && { transform: [{ scale: 0.98 }] },
                 ]}
               >
-                <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>
-                  {l.title}
-                </Text>
-                <Text style={styles.optionDesc}>{l.desc}</Text>
+                {({ pressed }) => (
+                  <>
+                    <Text
+                      style={[
+                        styles.optionTitle,
+                        (pressed || selected) && styles.optionTitleActive,
+                      ]}
+                    >
+                      {o.title}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.optionDesc,
+                        (pressed || selected) && styles.optionDescActive,
+                      ]}
+                    >
+                      {o.desc}
+                    </Text>
+                  </>
+                )}
               </Pressable>
             );
           })}
         </View>
 
         <View style={{ height: 16 }} />
-        <PrimaryButton label="Continue" onPress={onContinue} disabled={!canContinue} />
+
+        <Text style={styles.section}>Baseline weight</Text>
+        <TextInput
+          value={weightRaw}
+          onChangeText={setWeightRaw}
+          placeholder="e.g., 185"
+          placeholderTextColor={theme.colors.textMuted}
+          keyboardType="decimal-pad"
+          style={styles.input}
+          editable={!submitting}
+        />
+
+        {err ? <Text style={styles.error}>{err}</Text> : null}
+
+        <View style={{ height: 16 }} />
+
+        <PrimaryButton
+          label={submitting ? "Finishing..." : "Finish onboarding"}
+          onPress={onFinish}
+          disabled={!valid || submitting}
+          loading={submitting}
+        />
+
+        {submitting ? <ActivityIndicator style={{ marginTop: 12 }} /> : null}
+
+        <View style={{ height: 10 }} />
+        <BackToLogin />
       </Card>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
-  sub: { marginTop: 8, fontSize: 14, color: theme.colors.textMuted, textAlign: "center", lineHeight: 20 },
-  option: { borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.card, padding: 14, borderRadius: 14 },
-  optionSelected: { borderColor: theme.colors.primary },
-  optionTitle: { fontSize: 16, fontWeight: "700", color: theme.colors.text },
-  optionTitleSelected: { color: theme.colors.primary },
+  title: { fontSize: 22, fontWeight: "900", color: theme.colors.text, textAlign: "center" },
+  sub: { marginTop: 8, fontSize: 14, color: theme.colors.textMuted, textAlign: "center" },
+  section: { marginTop: 6, color: theme.colors.textFaint, fontWeight: "800" },
+
+  option: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.card,
+    padding: 14,
+    borderRadius: 14,
+  },
+  optionActive: {
+    backgroundColor: "#ffffff",
+    borderColor: "#ffffff",
+  },
+  optionTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text },
+  optionTitleActive: { color: "#000000" },
   optionDesc: { marginTop: 4, fontSize: 13, color: theme.colors.textMuted, lineHeight: 18 },
+  optionDescActive: { color: "#333333" },
+
+  input: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.card,
+    color: theme.colors.text,
+    padding: 14,
+    borderRadius: 14,
+    fontSize: 16,
+    textAlign: "center",
+  },
+
+  error: {
+    marginTop: 10,
+    color: theme.colors.danger ?? "red",
+    textAlign: "center",
+    fontWeight: "800",
+  },
 });

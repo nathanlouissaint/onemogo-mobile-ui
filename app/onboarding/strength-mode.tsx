@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+// app/onboarding/strength-mode.tsx
+import React, { useMemo, useState, useEffect } from "react";
 import { Text, View, Pressable, StyleSheet } from "react-native";
 import { router } from "expo-router";
 
@@ -7,19 +8,29 @@ import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
 import { useOnboarding, StrengthTrackingMode } from "../../src/onboarding/OnboardingContext";
+import { BackToLogin } from "../../src/components/BackToLogin";
 
-const MODES: { value: StrengthTrackingMode; title: string; desc: string }[] = [
-  { value: "prs", title: "PRs", desc: "Track personal records per exercise." },
-  { value: "volume", title: "Total volume", desc: "Track sets × reps × weight over time." },
-  { value: "both", title: "Both", desc: "Track PRs and volume." },
+const OPTIONS: { value: StrengthTrackingMode; title: string; desc: string }[] = [
+  { value: "prs", title: "PRs", desc: "Track max lifts and personal records." },
+  { value: "volume", title: "Volume", desc: "Track sets, reps, and total work." },
+  { value: "both", title: "Both", desc: "Track PRs and volume together." },
 ];
 
 export default function StrengthModeScreen() {
   const { draft, setStrengthMode } = useOnboarding();
-  const canContinue = useMemo(() => Boolean(draft.strengthTrackingMode), [draft.strengthTrackingMode]);
+  const [mode, setMode] = useState<StrengthTrackingMode | null>(
+    draft.strengthTrackingMode ?? null
+  );
+
+  useEffect(() => {
+    if (!draft.goal) router.replace("/onboarding/goal");
+  }, [draft.goal]);
+
+  const canContinue = useMemo(() => Boolean(mode), [mode]);
 
   const onContinue = () => {
-    if (!draft.strengthTrackingMode) return;
+    if (!mode) return;
+    setStrengthMode(mode);
     router.push("/onboarding/experience");
   };
 
@@ -27,27 +38,44 @@ export default function StrengthModeScreen() {
     <Screen>
       <Card>
         <Text style={styles.title}>Strength tracking</Text>
-        <Text style={styles.sub}>How should we track your strength progress?</Text>
+        <Text style={styles.sub}>How should we track your progress?</Text>
 
         <View style={{ height: 12 }} />
 
         <View style={{ gap: 10 }}>
-          {MODES.map((m) => {
-            const selected = draft.strengthTrackingMode === m.value;
+          {OPTIONS.map((o) => {
+            const selected = mode === o.value;
+
             return (
               <Pressable
-                key={m.value}
-                onPress={() => setStrengthMode(m.value)}
+                key={o.value}
+                onPress={() => setMode(o.value)}
                 style={({ pressed }) => [
                   styles.option,
-                  selected && styles.optionSelected,
-                  pressed && { opacity: 0.9 },
+                  (pressed || selected) && styles.optionActive,
+                  pressed && { transform: [{ scale: 0.98 }] },
                 ]}
               >
-                <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>
-                  {m.title}
-                </Text>
-                <Text style={styles.optionDesc}>{m.desc}</Text>
+                {({ pressed }) => (
+                  <>
+                    <Text
+                      style={[
+                        styles.optionTitle,
+                        (pressed || selected) && styles.optionTitleActive,
+                      ]}
+                    >
+                      {o.title}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.optionDesc,
+                        (pressed || selected) && styles.optionDescActive,
+                      ]}
+                    >
+                      {o.desc}
+                    </Text>
+                  </>
+                )}
               </Pressable>
             );
           })}
@@ -55,6 +83,9 @@ export default function StrengthModeScreen() {
 
         <View style={{ height: 16 }} />
         <PrimaryButton label="Continue" onPress={onContinue} disabled={!canContinue} />
+
+        <View style={{ height: 10 }} />
+        <BackToLogin />
       </Card>
     </Screen>
   );
@@ -62,10 +93,23 @@ export default function StrengthModeScreen() {
 
 const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
-  sub: { marginTop: 8, fontSize: 14, color: theme.colors.textMuted, textAlign: "center", lineHeight: 20 },
-  option: { borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.card, padding: 14, borderRadius: 14 },
-  optionSelected: { borderColor: theme.colors.primary },
-  optionTitle: { fontSize: 16, fontWeight: "700", color: theme.colors.text },
-  optionTitleSelected: { color: theme.colors.primary },
+  sub: { marginTop: 8, fontSize: 14, color: theme.colors.textMuted, textAlign: "center" },
+
+  option: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.card,
+    padding: 14,
+    borderRadius: 14,
+  },
+  optionActive: {
+    backgroundColor: "#ffffff",
+    borderColor: "#ffffff",
+  },
+
+  optionTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text },
+  optionTitleActive: { color: "#000000" },
+
   optionDesc: { marginTop: 4, fontSize: 13, color: theme.colors.textMuted, lineHeight: 18 },
+  optionDescActive: { color: "#333333" },
 });

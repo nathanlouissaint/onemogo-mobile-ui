@@ -33,28 +33,34 @@ export default function RegisterScreen() {
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
 
-  const canSubmit = useMemo(() => {
-    return (
-      isValidEmail(normalizedEmail) &&
-      password.trim().length >= 8 &&
-      confirm.trim().length >= 8 &&
-      password === confirm &&
-      !loading
-    );
-  }, [normalizedEmail, password, confirm, loading]);
-
   const handleRegister = async () => {
     setError(null);
 
-    if (!isValidEmail(normalizedEmail)) return setError("Enter a valid email.");
-    if (password.trim().length < 8) return setError("Password must be at least 8 characters.");
-    if (password !== confirm) return setError("Passwords do not match.");
+    if (!isValidEmail(normalizedEmail)) {
+      setError("Enter a valid email.");
+      return;
+    }
+
+    if (password.trim().length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
 
     setLoading(true);
+
     try {
-      await register({ email: normalizedEmail, password: password.trim() });
-      // Session guard will route to onboarding automatically
+      await register({
+        email: normalizedEmail,
+        password: password.trim(),
+      });
+      // Session guard will handle routing
     } catch (e: any) {
+      console.log("[register] error:", e);
       setError((e?.message ?? "Registration failed").toString());
     } finally {
       setLoading(false);
@@ -65,7 +71,9 @@ export default function RegisterScreen() {
     <Screen>
       <Card>
         <Text style={styles.title}>Create account</Text>
-        <Text style={styles.sub}>Set up your account to start tracking.</Text>
+        <Text style={styles.sub}>
+          Set up your account to start tracking.
+        </Text>
 
         <View style={{ gap: 12, marginTop: 12 }}>
           <TextInput
@@ -99,7 +107,10 @@ export default function RegisterScreen() {
             <Pressable
               onPress={() => setShowPassword((p) => !p)}
               disabled={loading}
-              style={({ pressed }) => [styles.toggleBtn, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [
+                styles.toggleBtn,
+                pressed && { opacity: 0.8 },
+              ]}
             >
               <Text style={styles.toggleBtnText}>
                 {showPassword ? "Hide" : "Show"}
@@ -127,7 +138,7 @@ export default function RegisterScreen() {
           <PrimaryButton
             label={loading ? "Creating..." : "Create account"}
             onPress={handleRegister}
-            disabled={!canSubmit}
+            disabled={loading}
           />
 
           {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
@@ -135,7 +146,9 @@ export default function RegisterScreen() {
           <View style={{ height: 12 }} />
 
           <Pressable onPress={() => router.replace("/login")}>
-            <Text style={styles.link}>Already have an account? Sign in</Text>
+            <Text style={styles.link}>
+              Already have an account? Sign in
+            </Text>
           </Pressable>
         </View>
       </Card>
@@ -144,8 +157,18 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
-  sub: { marginTop: 8, fontSize: 14, color: theme.colors.textMuted, textAlign: "center" },
+  title: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: theme.colors.text,
+    textAlign: "center",
+  },
+  sub: {
+    marginTop: 8,
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    textAlign: "center",
+  },
   input: {
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -155,7 +178,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     fontSize: 16,
   },
-  passwordRow: { flexDirection: "row", gap: 10, alignItems: "center" },
+  passwordRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
   toggleBtn: {
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -164,7 +191,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
   },
-  toggleBtnText: { color: theme.colors.text, fontWeight: "700" },
-  error: { marginTop: 10, color: theme.colors.danger ?? "red", textAlign: "center" },
-  link: { color: theme.colors.textMuted, textAlign: "center", textDecorationLine: "underline" },
+  toggleBtnText: {
+    color: theme.colors.text,
+    fontWeight: "700",
+  },
+  error: {
+    marginTop: 10,
+    color: theme.colors.danger ?? "red",
+    textAlign: "center",
+  },
+  link: {
+    color: theme.colors.textMuted,
+    textAlign: "center",
+    textDecorationLine: "underline",
+  },
 });

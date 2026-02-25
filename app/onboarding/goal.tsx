@@ -7,12 +7,8 @@ import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
-
-type GoalValue =
-  | "lose_fat"
-  | "build_muscle"
-  | "improve_strength"
-  | "general_fitness";
+import { useOnboarding, GoalValue } from "../../src/onboarding/OnboardingContext";
+import { BackToLogin } from "../../src/components/BackToLogin";
 
 const GOALS: { value: GoalValue; title: string; desc: string }[] = [
   { value: "lose_fat", title: "Lose fat", desc: "Focus on weight trend and consistency." },
@@ -22,21 +18,15 @@ const GOALS: { value: GoalValue; title: string; desc: string }[] = [
 ];
 
 export default function OnboardingGoalScreen() {
-  const [goal, setGoal] = useState<GoalValue | null>(null);
+  const { setGoal } = useOnboarding();
+  const [goal, pickGoal] = useState<GoalValue | null>(null);
 
   const canContinue = useMemo(() => Boolean(goal), [goal]);
 
   const onContinue = () => {
     if (!goal) return;
-    router.push({
-      pathname: "/onboarding/frequency",
-      params: { goal },
-    });
-  };
-
-  const onBackToLogin = () => {
-    // Replace so onboarding is not kept in the back stack.
-    router.replace("/login");
+    setGoal(goal);
+    router.push("/onboarding/frequency");
   };
 
   return (
@@ -56,17 +46,33 @@ export default function OnboardingGoalScreen() {
             return (
               <Pressable
                 key={g.value}
-                onPress={() => setGoal(g.value)}
+                onPress={() => pickGoal(g.value)}
                 style={({ pressed }) => [
                   styles.option,
-                  selected && styles.optionSelected,
-                  pressed && { opacity: 0.9 },
+                  (pressed || selected) && styles.optionActive,
+                  pressed && { transform: [{ scale: 0.98 }] },
                 ]}
               >
-                <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>
-                  {g.title}
-                </Text>
-                <Text style={styles.optionDesc}>{g.desc}</Text>
+                {({ pressed }) => (
+                  <>
+                    <Text
+                      style={[
+                        styles.optionTitle,
+                        (pressed || selected) && styles.optionTitleActive,
+                      ]}
+                    >
+                      {g.title}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.optionDesc,
+                        (pressed || selected) && styles.optionDescActive,
+                      ]}
+                    >
+                      {g.desc}
+                    </Text>
+                  </>
+                )}
               </Pressable>
             );
           })}
@@ -77,25 +83,14 @@ export default function OnboardingGoalScreen() {
         <PrimaryButton label="Continue" onPress={onContinue} disabled={!canContinue} />
 
         <View style={{ height: 10 }} />
-
-        <Pressable
-          onPress={onBackToLogin}
-          style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
-        >
-          <Text style={styles.linkText}>Back to login</Text>
-        </Pressable>
+        <BackToLogin />
       </Card>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: theme.colors.text,
-    textAlign: "center",
-  },
+  title: { fontSize: 22, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
   sub: {
     marginTop: 8,
     fontSize: 14,
@@ -110,31 +105,12 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 14,
   },
-  optionSelected: {
-    borderColor: theme.colors.primary,
+  optionActive: {
+    backgroundColor: "#ffffff",
+    borderColor: "#ffffff",
   },
-  optionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: theme.colors.text,
-  },
-  optionTitleSelected: {
-    color: theme.colors.primary,
-  },
-  optionDesc: {
-    marginTop: 4,
-    fontSize: 13,
-    color: theme.colors.textMuted,
-    lineHeight: 18,
-  },
-  linkBtn: {
-    alignSelf: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  linkText: {
-    color: theme.colors.textMuted,
-    textDecorationLine: "underline",
-    fontSize: 13,
-  },
+  optionTitle: { fontSize: 16, fontWeight: "700", color: theme.colors.text },
+  optionTitleActive: { color: "#000000" },
+  optionDesc: { marginTop: 4, fontSize: 13, color: theme.colors.textMuted, lineHeight: 18 },
+  optionDescActive: { color: "#333333" },
 });

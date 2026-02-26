@@ -1,4 +1,5 @@
 // src/session/SessionContext.tsx
+import { router, useSegments } from "expo-router";
 import React, {
   createContext,
   useContext,
@@ -7,8 +8,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { router, useSegments } from "expo-router";
-import * as api from "../lib/api";
+import * as api from "../lib/supabase";
 
 type SessionState = {
   user: api.User | null;

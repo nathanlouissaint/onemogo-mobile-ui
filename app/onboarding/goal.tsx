@@ -29,6 +29,10 @@ export default function OnboardingGoalScreen() {
     router.push("/onboarding/frequency");
   };
 
+  const onBack = () => {
+    router.replace("/login");
+  };
+
   return (
     <Screen>
       <Card>
@@ -80,7 +84,15 @@ export default function OnboardingGoalScreen() {
 
         <View style={{ height: 16 }} />
 
-        <PrimaryButton label="Continue" onPress={onContinue} disabled={!canContinue} />
+        {/* Navigation */}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton label="Back" onPress={onBack} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton label="Continue" onPress={onContinue} disabled={!canContinue} />
+          </View>
+        </View>
 
         <View style={{ height: 10 }} />
         <BackToLogin />

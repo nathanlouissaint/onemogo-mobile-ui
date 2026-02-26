@@ -7,7 +7,10 @@ import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
-import { useOnboarding, StrengthTrackingMode } from "../../src/onboarding/OnboardingContext";
+import {
+  useOnboarding,
+  StrengthTrackingMode,
+} from "../../src/onboarding/OnboardingContext";
 import { BackToLogin } from "../../src/components/BackToLogin";
 
 const OPTIONS: { value: StrengthTrackingMode; title: string; desc: string }[] = [
@@ -23,8 +26,15 @@ export default function StrengthModeScreen() {
   );
 
   useEffect(() => {
-    if (!draft.goal) router.replace("/onboarding/goal");
-  }, [draft.goal]);
+    if (!draft.goal) {
+      router.replace("/onboarding/goal");
+      return;
+    }
+    if (typeof draft.trainingDaysPerWeek !== "number") {
+      router.replace("/onboarding/frequency");
+      return;
+    }
+  }, [draft.goal, draft.trainingDaysPerWeek]);
 
   const canContinue = useMemo(() => Boolean(mode), [mode]);
 
@@ -32,6 +42,10 @@ export default function StrengthModeScreen() {
     if (!mode) return;
     setStrengthMode(mode);
     router.push("/onboarding/experience");
+  };
+
+  const onBack = () => {
+    router.replace("/onboarding/frequency");
   };
 
   return (
@@ -82,7 +96,20 @@ export default function StrengthModeScreen() {
         </View>
 
         <View style={{ height: 16 }} />
-        <PrimaryButton label="Continue" onPress={onContinue} disabled={!canContinue} />
+
+        {/* Navigation Row */}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton label="Back" onPress={onBack} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton
+              label="Continue"
+              onPress={onContinue}
+              disabled={!canContinue}
+            />
+          </View>
+        </View>
 
         <View style={{ height: 10 }} />
         <BackToLogin />

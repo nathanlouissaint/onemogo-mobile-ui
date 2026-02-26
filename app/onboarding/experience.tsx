@@ -1,25 +1,25 @@
 // app/onboarding/experience.tsx
+import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Text,
-  View,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  ActivityIndicator,
-  Alert,
+    ActivityIndicator,
+    Alert,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
-import { router } from "expo-router";
 
-import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import { useOnboarding, ExperienceLevel } from "../../src/onboarding/OnboardingContext";
-import { submitOnboarding, ApiError } from "../../src/lib/api";
-import { useSession } from "../../src/session/SessionContext";
 import { BackToLogin } from "../../src/components/BackToLogin";
+import { ApiError, submitOnboarding } from "../../src/lib/supabase";
+import { ExperienceLevel, useOnboarding } from "../../src/onboarding/OnboardingContext";
+import { useSession } from "../../src/session/SessionContext";
 
 const LEVELS: { value: ExperienceLevel; title: string; desc: string }[] = [
   { value: "beginner", title: "Beginner", desc: "New or returning after a long break." },
@@ -70,6 +70,10 @@ export default function ExperienceScreen() {
       weight > 0
     );
   }, [draft.goal, draft.trainingDaysPerWeek, draft.strengthTrackingMode, level, weight]);
+
+  const onBack = () => {
+    router.replace("/onboarding/strength-mode");
+  };
 
   const onFinish = async () => {
     setErr(null);
@@ -166,12 +170,20 @@ export default function ExperienceScreen() {
 
         <View style={{ height: 16 }} />
 
-        <PrimaryButton
-          label={submitting ? "Finishing..." : "Finish onboarding"}
-          onPress={onFinish}
-          disabled={!valid || submitting}
-          loading={submitting}
-        />
+        {/* Navigation Row */}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton label="Back" onPress={onBack} disabled={submitting} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton
+              label={submitting ? "Finishing..." : "Finish"}
+              onPress={onFinish}
+              disabled={!valid || submitting}
+              loading={submitting}
+            />
+          </View>
+        </View>
 
         {submitting ? <ActivityIndicator style={{ marginTop: 12 }} /> : null}
 

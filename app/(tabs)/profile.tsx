@@ -1,26 +1,26 @@
 // app/(tabs)/profile.tsx
+import * as ImagePicker from "expo-image-picker";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
   Alert,
-  TextInput,
-  Switch,
-  ScrollView,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
 
-import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import { updateProfile, ApiError } from "../../src/lib/api";
+import { ApiError, updateProfile } from "../../src/lib/supabase";
 import { useSession } from "../../src/session/SessionContext";
 
 type ProfileDraft = {

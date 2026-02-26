@@ -1,21 +1,21 @@
 // app/workout/[id].tsx
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
   ActivityIndicator,
   Alert,
   ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
-import { useLocalSearchParams, router } from "expo-router";
 
-import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import { getWorkout, ApiError } from "../../src/lib/api";
+import { ApiError, getWorkout } from "../../src/lib/supabase";
 
 // Local types so this screen does NOT depend on missing exports from api.ts
 type WorkoutExercise = {

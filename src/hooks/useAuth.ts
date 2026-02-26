@@ -1,6 +1,6 @@
 // src/hooks/useAuth.ts
 import { useEffect, useState } from "react";
-import * as api from "../lib/api";
+import * as api from "../lib/supabase";
 
 export type User = api.User;
 

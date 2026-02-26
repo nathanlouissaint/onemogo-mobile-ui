@@ -1,14 +1,14 @@
 // app/(tabs)/index.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
+import React, { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
-import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import { getWorkouts, WorkoutSession, ApiError } from "../../src/lib/api";
+import { ApiError, getWorkouts, WorkoutSession } from "../../src/lib/supabase";
 import { useSession } from "../../src/session/SessionContext";
 
 function formatActivityType(v?: string | null) {

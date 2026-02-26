@@ -32,6 +32,10 @@ export default function FrequencyScreen() {
     router.push("/onboarding/strength-mode");
   };
 
+  const onBack = () => {
+    router.replace("/onboarding/goal");
+  };
+
   return (
     <Screen>
       <Card>
@@ -50,7 +54,20 @@ export default function FrequencyScreen() {
         />
 
         <View style={{ height: 16 }} />
-        <PrimaryButton label="Continue" onPress={onContinue} disabled={!valid} />
+
+        {/* Navigation Row */}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton label="Back" onPress={onBack} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton
+              label="Continue"
+              onPress={onContinue}
+              disabled={!valid}
+            />
+          </View>
+        </View>
 
         <View style={{ height: 10 }} />
         <BackToLogin />

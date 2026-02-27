@@ -2,10 +2,10 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Text, View, Pressable, StyleSheet } from "react-native";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 import { Screen } from "../../src/components/Screen";
 import { Card } from "../../src/components/Card";
-import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { theme } from "../../src/constants/theme";
 import {
   useOnboarding,
@@ -97,18 +97,31 @@ export default function StrengthModeScreen() {
 
         <View style={{ height: 16 }} />
 
-        {/* Navigation Row */}
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <View style={{ flex: 1 }}>
-            <PrimaryButton label="Back" onPress={onBack} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <PrimaryButton
-              label="Continue"
-              onPress={onContinue}
-              disabled={!canContinue}
-            />
-          </View>
+        {/* Navigation (arrows) */}
+        <View style={styles.navRow}>
+          <Pressable
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={10}
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          </Pressable>
+
+          <Pressable
+            onPress={onContinue}
+            disabled={!canContinue}
+            accessibilityRole="button"
+            accessibilityLabel="Continue"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              (!canContinue || pressed) && { opacity: !canContinue ? 0.4 : 0.85 },
+            ]}
+          >
+            <Ionicons name="chevron-forward" size={24} color={theme.colors.text} />
+          </Pressable>
         </View>
 
         <View style={{ height: 10 }} />
@@ -139,4 +152,20 @@ const styles = StyleSheet.create({
 
   optionDesc: { marginTop: 4, fontSize: 13, color: theme.colors.textMuted, lineHeight: 18 },
   optionDescActive: { color: "#333333" },
+
+  navRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  iconBtn: {
+    height: 48,
+    width: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

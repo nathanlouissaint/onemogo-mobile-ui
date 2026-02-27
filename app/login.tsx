@@ -7,6 +7,8 @@ import {
   View,
   ActivityIndicator,
   Pressable,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 
@@ -25,7 +27,6 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,6 @@ export default function LoginScreen() {
 
     try {
       await login(normalizedEmail, password.trim());
-      // Root layout guard handles navigation
     } catch (e: any) {
       const msg = (e?.message ?? "Login failed").toString();
       setError(msg);
@@ -68,80 +68,99 @@ export default function LoginScreen() {
 
   return (
     <Screen>
-      <Card>
-        <Text style={styles.title}>ONEMOGO</Text>
-        <Text style={styles.sub}>Sign in to continue.</Text>
+      <KeyboardAvoidingView
+        style={styles.center}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.cardWrapper}>
+          <Card>
+            <Text style={styles.title}>ONEMOGO</Text>
+            <Text style={styles.sub}>Sign in to continue.</Text>
 
-        <View style={styles.form}>
-          <TextInput
-            value={email}
-            onChangeText={(v) => {
-              setEmail(v);
-              if (error) setError(null);
-            }}
-            placeholder="Email"
-            placeholderTextColor={theme.colors.textMuted}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={styles.input}
-            editable={!loading}
-          />
+            <View style={styles.form}>
+              <TextInput
+                value={email}
+                onChangeText={(v) => {
+                  setEmail(v);
+                  if (error) setError(null);
+                }}
+                placeholder="Email"
+                placeholderTextColor={theme.colors.textMuted}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={styles.input}
+                editable={!loading}
+              />
 
-          <View style={styles.passwordRow}>
-            <TextInput
-              value={password}
-              onChangeText={(v) => {
-                setPassword(v);
-                if (error) setError(null);
-              }}
-              placeholder="Password"
-              placeholderTextColor={theme.colors.textMuted}
-              secureTextEntry={!showPassword}
-              style={[styles.input, styles.passwordInput]}
-              editable={!loading}
-            />
+              <View style={styles.passwordRow}>
+                <TextInput
+                  value={password}
+                  onChangeText={(v) => {
+                    setPassword(v);
+                    if (error) setError(null);
+                  }}
+                  placeholder="Password"
+                  placeholderTextColor={theme.colors.textMuted}
+                  secureTextEntry={!showPassword}
+                  style={[styles.input, styles.passwordInput]}
+                  editable={!loading}
+                />
 
-            <Pressable
-              onPress={() => setShowPassword((p) => !p)}
-              disabled={loading}
-              style={({ pressed }) => [
-                styles.toggleBtn,
-                pressed && { opacity: 0.8 },
-              ]}
-              hitSlop={10}
-            >
-              <Text style={styles.toggleBtnText}>
-                {showPassword ? "Hide" : "Show"}
-              </Text>
-            </Pressable>
-          </View>
+                <Pressable
+                  onPress={() => setShowPassword((p) => !p)}
+                  disabled={loading}
+                  style={({ pressed }) => [
+                    styles.toggleBtn,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  hitSlop={10}
+                >
+                  <Text style={styles.toggleBtnText}>
+                    {showPassword ? "Hide" : "Show"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {error && <Text style={styles.error}>{error}</Text>}
+
+            <View style={styles.actions}>
+              <PrimaryButton
+                label={loading ? "Signing in..." : "Continue"}
+                onPress={handleLogin}
+                disabled={!canSubmit}
+              />
+
+              {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
+
+              <View style={{ height: 12 }} />
+
+              <PrimaryButton
+                label="Create account"
+                onPress={() => router.push("/register")}
+                disabled={loading}
+              />
+            </View>
+          </Card>
         </View>
-
-        {error && <Text style={styles.error}>{error}</Text>}
-
-        <View style={styles.actions}>
-          <PrimaryButton
-            label={loading ? "Signing in..." : "Continue"}
-            onPress={handleLogin}
-            disabled={!canSubmit}
-          />
-
-          {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
-
-          <View style={{ height: 12 }} />
-
-          <PrimaryButton
-            label="Create account"
-            onPress={() => router.push("/register")}
-            disabled={loading}
-          />
-        </View>
-      </Card>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  cardWrapper: {
+    width: "100%",
+    maxWidth: 420,
+    transform: [{ translateY: -40 }], // 👈 Moves card slightly up
+  },
+
   title: {
     fontSize: 28,
     fontWeight: "800",

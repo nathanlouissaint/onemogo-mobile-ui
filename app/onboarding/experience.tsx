@@ -2,22 +2,22 @@
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { Card } from "../../src/components/Card";
-import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
 import { BackToLogin } from "../../src/components/BackToLogin";
-import { ApiError, submitOnboarding } from "../../src/lib/supabase";
+import { submitOnboarding } from "../../src/lib/supabase";
 import { ExperienceLevel, useOnboarding } from "../../src/onboarding/OnboardingContext";
 import { useSession } from "../../src/session/SessionContext";
 
@@ -26,6 +26,16 @@ const LEVELS: { value: ExperienceLevel; title: string; desc: string }[] = [
   { value: "intermediate", title: "Intermediate", desc: "Consistent training for months/years." },
   { value: "advanced", title: "Advanced", desc: "Highly consistent with structured training." },
 ];
+
+function getErrMsg(e: unknown, fallback: string) {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const anyErr = e as any;
+    if (typeof anyErr.message === "string") return anyErr.message;
+    if (typeof anyErr.error_description === "string") return anyErr.error_description;
+  }
+  return fallback;
+}
 
 export default function ExperienceScreen() {
   const { draft, setExperience, setBaselineWeight, reset } = useOnboarding();
@@ -94,11 +104,10 @@ export default function ExperienceScreen() {
 
       await refresh();
       reset();
-    } catch (e: any) {
-      const msg =
-        e instanceof ApiError ? e.message : e?.message ?? "Failed to finish onboarding";
-      setErr(msg.toString());
-      Alert.alert("Error", msg.toString());
+    } catch (e: unknown) {
+      const msg = getErrMsg(e, "Failed to finish onboarding");
+      setErr(msg);
+      Alert.alert("Error", msg);
     } finally {
       setSubmitting(false);
     }
@@ -170,22 +179,42 @@ export default function ExperienceScreen() {
 
         <View style={{ height: 16 }} />
 
-        {/* Navigation Row */}
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <View style={{ flex: 1 }}>
-            <PrimaryButton label="Back" onPress={onBack} disabled={submitting} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <PrimaryButton
-              label={submitting ? "Finishing..." : "Finish"}
-              onPress={onFinish}
-              disabled={!valid || submitting}
-              loading={submitting}
-            />
-          </View>
-        </View>
+        {/* Navigation (arrows) */}
+        <View style={styles.navRow}>
+          <Pressable
+            onPress={onBack}
+            disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              (submitting || pressed) && { opacity: submitting ? 0.4 : 0.85 },
+            ]}
+          >
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          </Pressable>
 
-        {submitting ? <ActivityIndicator style={{ marginTop: 12 }} /> : null}
+          <Pressable
+            onPress={onFinish}
+            disabled={!valid || submitting}
+            accessibilityRole="button"
+            accessibilityLabel={submitting ? "Finishing" : "Finish"}
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              (!valid || submitting || pressed) && {
+                opacity: !valid || submitting ? 0.4 : 0.85,
+              },
+            ]}
+          >
+            {submitting ? (
+              <ActivityIndicator />
+            ) : (
+              <Ionicons name="chevron-forward" size={24} color={theme.colors.text} />
+            )}
+          </Pressable>
+        </View>
 
         <View style={{ height: 10 }} />
         <BackToLogin />
@@ -232,5 +261,21 @@ const styles = StyleSheet.create({
     color: theme.colors.danger ?? "red",
     textAlign: "center",
     fontWeight: "800",
+  },
+
+  navRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  iconBtn: {
+    height: 48,
+    width: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.card,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

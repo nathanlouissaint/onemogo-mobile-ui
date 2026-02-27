@@ -7,6 +7,8 @@ import {
   View,
   ActivityIndicator,
   Pressable,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 
@@ -69,94 +71,109 @@ export default function RegisterScreen() {
 
   return (
     <Screen>
-      <Card>
-        <Text style={styles.title}>Create account</Text>
-        <Text style={styles.sub}>
-          Set up your account to start tracking.
-        </Text>
+      <KeyboardAvoidingView
+        style={styles.center}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.cardWrapper}>
+          <Card>
+            <Text style={styles.title}>Create account</Text>
+            <Text style={styles.sub}>Set up your account to start tracking.</Text>
 
-        <View style={{ gap: 12, marginTop: 12 }}>
-          <TextInput
-            value={email}
-            onChangeText={(v) => {
-              setEmail(v);
-              if (error) setError(null);
-            }}
-            placeholder="Email"
-            placeholderTextColor={theme.colors.textMuted}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={styles.input}
-            editable={!loading}
-          />
+            <View style={{ gap: 12, marginTop: 12 }}>
+              <TextInput
+                value={email}
+                onChangeText={(v) => {
+                  setEmail(v);
+                  if (error) setError(null);
+                }}
+                placeholder="Email"
+                placeholderTextColor={theme.colors.textMuted}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={styles.input}
+                editable={!loading}
+              />
 
-          <View style={styles.passwordRow}>
-            <TextInput
-              value={password}
-              onChangeText={(v) => {
-                setPassword(v);
-                if (error) setError(null);
-              }}
-              placeholder="Password (min 8)"
-              placeholderTextColor={theme.colors.textMuted}
-              secureTextEntry={!showPassword}
-              style={[styles.input, { flex: 1 }]}
-              editable={!loading}
-            />
+              <View style={styles.passwordRow}>
+                <TextInput
+                  value={password}
+                  onChangeText={(v) => {
+                    setPassword(v);
+                    if (error) setError(null);
+                  }}
+                  placeholder="Password (min 8)"
+                  placeholderTextColor={theme.colors.textMuted}
+                  secureTextEntry={!showPassword}
+                  style={[styles.input, { flex: 1 }]}
+                  editable={!loading}
+                />
 
-            <Pressable
-              onPress={() => setShowPassword((p) => !p)}
-              disabled={loading}
-              style={({ pressed }) => [
-                styles.toggleBtn,
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              <Text style={styles.toggleBtnText}>
-                {showPassword ? "Hide" : "Show"}
-              </Text>
-            </Pressable>
-          </View>
+                <Pressable
+                  onPress={() => setShowPassword((p) => !p)}
+                  disabled={loading}
+                  style={({ pressed }) => [
+                    styles.toggleBtn,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Text style={styles.toggleBtnText}>
+                    {showPassword ? "Hide" : "Show"}
+                  </Text>
+                </Pressable>
+              </View>
 
-          <TextInput
-            value={confirm}
-            onChangeText={(v) => {
-              setConfirm(v);
-              if (error) setError(null);
-            }}
-            placeholder="Confirm password"
-            placeholderTextColor={theme.colors.textMuted}
-            secureTextEntry={!showPassword}
-            style={styles.input}
-            editable={!loading}
-          />
+              <TextInput
+                value={confirm}
+                onChangeText={(v) => {
+                  setConfirm(v);
+                  if (error) setError(null);
+                }}
+                placeholder="Confirm password"
+                placeholderTextColor={theme.colors.textMuted}
+                secureTextEntry={!showPassword}
+                style={styles.input}
+                editable={!loading}
+              />
+            </View>
+
+            {error && <Text style={styles.error}>{error}</Text>}
+
+            <View style={{ marginTop: 16 }}>
+              <PrimaryButton
+                label={loading ? "Creating..." : "Create account"}
+                onPress={handleRegister}
+                disabled={loading}
+              />
+
+              {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
+
+              <View style={{ height: 12 }} />
+
+              <Pressable onPress={() => router.replace("/login")}>
+                <Text style={styles.link}>Already have an account? Sign in</Text>
+              </Pressable>
+            </View>
+          </Card>
         </View>
-
-        {error && <Text style={styles.error}>{error}</Text>}
-
-        <View style={{ marginTop: 16 }}>
-          <PrimaryButton
-            label={loading ? "Creating..." : "Create account"}
-            onPress={handleRegister}
-            disabled={loading}
-          />
-
-          {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
-
-          <View style={{ height: 12 }} />
-
-          <Pressable onPress={() => router.replace("/login")}>
-            <Text style={styles.link}>
-              Already have an account? Sign in
-            </Text>
-          </Pressable>
-        </View>
-      </Card>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  cardWrapper: {
+    width: "100%",
+    maxWidth: 420,
+    transform: [{ translateY: -40 }], // 👈 Moves card slightly up
+  },
+
   title: {
     fontSize: 22,
     fontWeight: "800",

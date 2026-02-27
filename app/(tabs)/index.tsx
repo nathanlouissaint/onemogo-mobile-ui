@@ -8,13 +8,23 @@ import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import { ApiError, getWorkouts, WorkoutSession } from "../../src/lib/supabase";
+import { getWorkouts, WorkoutSession } from "../../src/lib/supabase";
 import { useSession } from "../../src/session/SessionContext";
 
 function formatActivityType(v?: string | null) {
   if (!v) return "—";
   const s = String(v).toLowerCase();
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function getErrMsg(e: unknown, fallback: string) {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const anyErr = e as any;
+    if (typeof anyErr.message === "string") return anyErr.message;
+    if (typeof anyErr.error_description === "string") return anyErr.error_description;
+  }
+  return fallback;
 }
 
 export default function HomeScreen() {
@@ -44,10 +54,8 @@ export default function HomeScreen() {
     try {
       const list = await getWorkouts();
       setWorkouts(list || []);
-    } catch (e: any) {
-      const msg =
-        e instanceof ApiError ? e.message : (e?.message ?? "Failed to load workouts");
-      setErr(msg.toString());
+    } catch (e: unknown) {
+      setErr(getErrMsg(e, "Failed to load workouts"));
     } finally {
       setLoading(false);
     }
@@ -161,9 +169,7 @@ export default function HomeScreen() {
             </View>
 
             <Text style={styles.meta}>
-              {typeof today.durationMin === "number"
-                ? `${today.durationMin} minutes`
-                : "Duration —"}
+              {typeof today.durationMin === "number" ? `${today.durationMin} minutes` : "Duration —"}
             </Text>
 
             <View style={{ marginTop: theme.spacing.md }}>

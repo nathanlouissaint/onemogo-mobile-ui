@@ -8,7 +8,9 @@ import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import { getWorkouts, WorkoutSession } from "../../src/lib/supabase";
+import { getWorkouts } from "../../src/lib/workouts";
+import type { WorkoutSession } from "../../src/lib/workouts";
+
 import { useSession } from "../../src/session/SessionContext";
 
 function formatActivityType(v?: string | null) {
@@ -23,12 +25,17 @@ function getErrMsg(e: unknown, fallback: string) {
     const anyErr = e as any;
     if (typeof anyErr.message === "string") return anyErr.message;
     if (typeof anyErr.error_description === "string") return anyErr.error_description;
+    if (typeof anyErr.details === "string") return anyErr.details;
+    if (typeof anyErr.hint === "string") return anyErr.hint;
+    if (typeof anyErr.code === "string" && typeof anyErr.message === "string")
+      return `${anyErr.code}: ${anyErr.message}`;
   }
   return fallback;
 }
 
 export default function HomeScreen() {
-  const { user } = useSession();
+  const { user, loading: sessionLoading } = useSession();
+  const userId = user?.id;
 
   const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,12 +56,22 @@ export default function HomeScreen() {
   const pct = Math.round(progress * 100);
 
   const fetchWorkouts = async () => {
+    if (sessionLoading) return;
+
+    if (!userId) {
+      setErr("No user session found. Please log in again.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setErr(null);
+
     try {
-      const list = await getWorkouts();
+      const list = await getWorkouts(userId);
       setWorkouts(list || []);
     } catch (e: unknown) {
+      console.log("Dashboard fetchWorkouts error:", e);
       setErr(getErrMsg(e, "Failed to load workouts"));
     } finally {
       setLoading(false);
@@ -62,11 +79,10 @@ export default function HomeScreen() {
   };
 
   useEffect(() => {
-    fetchWorkouts();
+    if (!sessionLoading && userId) fetchWorkouts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionLoading, userId]);
 
-  // Today workout session = first session for now
   const today = workouts?.[0];
 
   const onStart = () => {
@@ -78,20 +94,19 @@ export default function HomeScreen() {
     });
   };
 
+  // Standardized to snake_case schema
   const todayTitle =
     (today?.title && String(today.title).trim()) ||
-    (today?.activityType ? `${formatActivityType(today.activityType)} session` : "Workout session");
+    (today?.activity_type ? `${formatActivityType(today.activity_type)} session` : "Workout session");
 
   return (
     <Screen>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.kicker}>Dashboard</Text>
         <Text style={styles.title}>Welcome back, {data.name}</Text>
         <Text style={styles.sub}>Stay consistent. Small wins compound.</Text>
       </View>
 
-      {/* Summary row */}
       <View style={styles.row}>
         <Card style={styles.half}>
           <Text style={styles.label}>Streak</Text>
@@ -106,7 +121,6 @@ export default function HomeScreen() {
         </Card>
       </View>
 
-      {/* Progress */}
       <Card style={styles.progress}>
         <View style={styles.progressTop}>
           <View>
@@ -125,7 +139,6 @@ export default function HomeScreen() {
         </View>
       </Card>
 
-      {/* Today */}
       <Card style={styles.today}>
         <View style={styles.todayHeaderRow}>
           <Text style={styles.section}>Today</Text>
@@ -136,7 +149,6 @@ export default function HomeScreen() {
           ) : null}
         </View>
 
-        {/* Error */}
         {!loading && err ? (
           <>
             <Text style={styles.errorText}>{err}</Text>
@@ -146,7 +158,6 @@ export default function HomeScreen() {
           </>
         ) : null}
 
-        {/* Empty */}
         {!loading && !err && !today ? (
           <>
             <Text style={styles.meta}>No workout sessions available yet.</Text>
@@ -156,20 +167,19 @@ export default function HomeScreen() {
           </>
         ) : null}
 
-        {/* Loaded */}
         {!loading && !err && today ? (
           <>
             <View style={styles.todayRow}>
               <Text style={styles.workoutTitle}>{todayTitle}</Text>
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>
-                  {today.activityType ? formatActivityType(today.activityType) : "—"}
+                  {today.activity_type ? formatActivityType(today.activity_type) : "—"}
                 </Text>
               </View>
             </View>
 
             <Text style={styles.meta}>
-              {typeof today.durationMin === "number" ? `${today.durationMin} minutes` : "Duration —"}
+              {typeof today.duration_min === "number" ? `${today.duration_min} minutes` : "Duration —"}
             </Text>
 
             <View style={{ marginTop: theme.spacing.md }}>
@@ -247,7 +257,6 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
   },
 
-  // Ensure theme.colors.accent exists; otherwise replace with theme.colors.primary.
   fill: { height: "100%", backgroundColor: theme.colors.accent },
 
   today: { marginTop: theme.spacing.lg },

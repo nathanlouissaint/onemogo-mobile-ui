@@ -1,6 +1,6 @@
 // app/workout/[id].tsx
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,63 +15,51 @@ import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import {
-  completeWorkoutSession,
-  getWorkoutSession,
-} from "../../src/lib/workouts";
+import { getWorkoutById } from "../../src/lib/workouts";
+import { useSession } from "../../src/session/SessionContext";
 
-// Keep this local so the screen doesn’t depend on hidden exports/types
-type WorkoutSessionDetail = {
-  id: string;
-  user_id: string;
-  title?: string | null;
-  activity_type?: string | null;
-  started_at?: string | null;
-  ended_at?: string | null;
-  duration_min?: number | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+// Local types (kept for your current UI shape)
+type WorkoutExercise = {
+  id?: string;
+  name: string;
+  sets?: number | null;
+  reps?: number | null;
+  durationSeconds?: number | null;
+  notes?: string | null;
 };
 
-function formatActivityType(v?: string | null) {
+type WorkoutDetail = {
+  id: string;
+  title: string;
+  description?: string | null;
+  difficulty?: string | null;
+  durationMinutes?: number | null;
+  exercises?: WorkoutExercise[];
+};
+
+function formatDifficulty(v?: string | null) {
   if (!v) return "—";
-  const s = String(v).toLowerCase();
+  const s = String(v);
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function formatDateTime(v?: string | null) {
-  if (!v) return "—";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString();
-}
-
-function getErrMsg(e: unknown, fallback: string) {
-  if (typeof e === "string") return e;
-  if (e && typeof e === "object") {
-    const anyErr = e as any;
-    if (typeof anyErr.message === "string") return anyErr.message;
-    if (typeof anyErr.details === "string") return anyErr.details;
-    if (typeof anyErr.hint === "string") return anyErr.hint;
-  }
-  return fallback;
-}
-
-export default function WorkoutSessionScreen() {
+export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useSession();
 
-  const sessionId = useMemo(() => {
+  const workoutId = useMemo(() => {
     const raw = Array.isArray(id) ? id[0] : id;
     return (raw ?? "").toString();
   }, [id]);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [workout, setWorkout] = useState<WorkoutSessionDetail | null>(null);
+  const [workout, setWorkout] = useState<WorkoutDetail | null>(null);
 
-  const load = useCallback(async () => {
-    if (!sessionId) {
-      setErr("Missing session id.");
+  const fetchWorkout = useCallback(async () => {
+    if (!workoutId || !user?.id) {
+      if (!workoutId) setErr("Missing workout id.");
+      if (!user?.id) setErr("Not authenticated.");
       setLoading(false);
       return;
     }
@@ -80,224 +68,149 @@ export default function WorkoutSessionScreen() {
     setErr(null);
 
     try {
-      const data = (await getWorkoutSession(sessionId)) as WorkoutSessionDetail;
-      setWorkout(data);
-    } catch (e: unknown) {
-      setErr(getErrMsg(e, "Failed to load session"));
+      const data = await getWorkoutById(user.id, workoutId);
+      setWorkout({
+        id: data.id,
+        title: data.title ?? "Workout",
+        description: data.notes,
+        durationMinutes: data.duration_min ?? undefined,
+        difficulty: data.activity_type ?? undefined,
+        // exercises not implemented yet (no backing table in current schema)
+        exercises: [],
+      });
+    } catch (e: any) {
+      const msg = e?.message ?? "Failed to load workout";
+      setErr(String(msg));
     } finally {
       setLoading(false);
     }
-  }, [sessionId]);
+  }, [workoutId, user?.id]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let mounted = true;
 
-  // ----- Timer state (UI-only pause/resume) -----
-  const [isRunning, setIsRunning] = useState(true);
-  const [elapsedSec, setElapsedSec] = useState(0);
+    (async () => {
+      if (!mounted) return;
+      await fetchWorkout();
+    })();
 
-  // tracks total paused time so elapsed stays accurate
-  const pausedTotalMsRef = useRef(0);
-  const pauseStartedAtMsRef = useRef<number | null>(null);
+    return () => {
+      mounted = false;
+    };
+  }, [fetchWorkout]);
 
-  // helper
-  const computeElapsedSec = useCallback(() => {
-    if (!workout?.started_at) return 0;
+  const exercises = workout?.exercises ?? [];
 
-    const startMs = new Date(workout.started_at).getTime();
-    if (Number.isNaN(startMs)) return 0;
-
-    // if completed, lock to ended_at
-    const endMs = workout.ended_at ? new Date(workout.ended_at).getTime() : Date.now();
-    const pausedMs = pausedTotalMsRef.current;
-
-    const raw = Math.max(0, endMs - startMs - pausedMs);
-    return Math.floor(raw / 1000);
-  }, [workout?.started_at, workout?.ended_at]);
-
-  // initialize timer when workout loads/changes
-  useEffect(() => {
-    if (!workout?.id) return;
-
-    // completed sessions should not "run"
-    if (workout.ended_at) {
-      setIsRunning(false);
-      setElapsedSec(computeElapsedSec());
-      return;
-    }
-
-    // active sessions start running by default
-    setIsRunning(true);
-    setElapsedSec(computeElapsedSec());
-    // reset pause tracking when switching sessions
-    pausedTotalMsRef.current = 0;
-    pauseStartedAtMsRef.current = null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workout?.id]);
-
-  // tick
-  useEffect(() => {
-    if (!workout?.id) return;
-    if (workout.ended_at) return;
-    if (!isRunning) return;
-
-    const t = setInterval(() => {
-      setElapsedSec(computeElapsedSec());
-    }, 250);
-
-    return () => clearInterval(t);
-  }, [workout?.id, workout?.ended_at, isRunning, computeElapsedSec]);
-
-  const onPauseTimer = () => {
-    if (workout?.ended_at) return;
-    if (!isRunning) return;
-    pauseStartedAtMsRef.current = Date.now();
-    setIsRunning(false);
-  };
-
-  const onResumeTimer = () => {
-    if (workout?.ended_at) return;
-    if (isRunning) return;
-
-    const pauseStarted = pauseStartedAtMsRef.current;
-    if (pauseStarted) {
-      pausedTotalMsRef.current += Date.now() - pauseStarted;
-    }
-    pauseStartedAtMsRef.current = null;
-    setIsRunning(true);
-  };
-
-  const timerLabel = useMemo(() => {
-    const mm = Math.floor(elapsedSec / 60);
-    const ss = elapsedSec % 60;
-    return `${mm}:${String(ss).padStart(2, "0")}`;
-  }, [elapsedSec]);
-
-  const statusLabel = workout?.ended_at ? "Completed" : isRunning ? "Running" : "Stopped";
-
-  const durationLabel = useMemo(() => {
-    if (!workout) return "—";
-    if (typeof workout.duration_min === "number") return `${workout.duration_min} min`;
-    // fallback from timer (rounded up to minutes like your UI)
-    const mins = Math.max(0, Math.round(elapsedSec / 60));
-    return mins ? `${mins} min` : "—";
-  }, [workout, elapsedSec]);
-
-  const onCompleteWorkout = async () => {
-    if (!workout?.id) return;
-    if (workout.ended_at) return;
-
+  const onComplete = () => {
     Alert.alert(
-      "Complete workout?",
-      "This will stop the session and mark it as completed.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Complete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setLoading(true);
-              setErr(null);
-              await completeWorkoutSession(workout.id);
-              await load();
-            } catch (e: unknown) {
-              setErr(getErrMsg(e, "Failed to complete workout"));
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
+      "Not available yet",
+      "Workout completion isn't implemented yet. This button will be enabled once the backend supports it."
     );
   };
 
-  const title =
-    (workout?.title && String(workout.title).trim()) || "Workout Session";
-
-  const subtitle = `${formatActivityType(workout?.activity_type)} • ${
-    workout?.ended_at ? "Completed" : "Active"
-  }`;
+  const onRetry = async () => {
+    await fetchWorkout();
+  };
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.kicker}>Workout</Text>
           <Text style={styles.title} numberOfLines={2}>
-            {loading ? "Loading..." : title}
+            {loading ? "Loading..." : workout?.title ?? "Workout"}
           </Text>
-          <Text style={styles.sub}>{subtitle}</Text>
+          <Text style={styles.sub}>
+            {workout?.difficulty ? formatDifficulty(workout.difficulty) : "—"}
+            {typeof workout?.durationMinutes === "number"
+              ? ` • ${workout.durationMinutes} min`
+              : ""}
+          </Text>
         </View>
 
+        {/* States */}
         {loading ? (
           <Card>
             <View style={styles.center}>
               <ActivityIndicator />
-              <Text style={styles.meta}>Loading session…</Text>
+              <Text style={styles.meta}>Loading workout…</Text>
             </View>
           </Card>
         ) : err ? (
           <Card>
             <Text style={styles.errorText}>{err}</Text>
             <View style={{ marginTop: theme.spacing.md }}>
-              <PrimaryButton label="Retry" onPress={load} />
+              <PrimaryButton label="Retry" onPress={onRetry} />
             </View>
             <View style={{ height: 12 }} />
             <PrimaryButton label="Back" onPress={() => router.back()} />
           </Card>
         ) : workout ? (
           <>
-            {/* Timer */}
+            {/* Overview */}
             <Card style={{ marginBottom: theme.spacing.md }}>
-              <View style={styles.timerTop}>
-                <Text style={styles.section}>Timer</Text>
-                <View style={styles.pill}>
-                  <Text style={styles.pillText}>{statusLabel}</Text>
-                </View>
-              </View>
-
-              <Text style={styles.timerValue}>{timerLabel}</Text>
-
-              <Text style={styles.meta}>Started: {formatDateTime(workout.started_at)}</Text>
-              <Text style={styles.meta}>Ended: {formatDateTime(workout.ended_at)}</Text>
-              <Text style={styles.meta}>Duration: {durationLabel}</Text>
-
-              <View style={{ marginTop: theme.spacing.md, gap: 12 }}>
-                {!workout.ended_at ? (
-                  <>
-                    {isRunning ? (
-                      <PrimaryButton label="Pause Timer" onPress={onPauseTimer} />
-                    ) : (
-                      <PrimaryButton label="Resume Timer" onPress={onResumeTimer} />
-                    )}
-
-                    <PrimaryButton label="Complete Workout" onPress={onCompleteWorkout} />
-                  </>
-                ) : (
-                  <Text style={[styles.meta, { marginTop: 6, fontWeight: "900" }]}>
-                    Completed
-                  </Text>
-                )}
-              </View>
+              <Text style={styles.section}>Overview</Text>
+              <Text style={styles.body}>
+                {workout.description?.trim()
+                  ? workout.description
+                  : "No description provided."}
+              </Text>
             </Card>
 
-            {/* Details / actions */}
+            {/* Exercises */}
             <Card>
-              <Text style={styles.section}>Details</Text>
-              <Text style={styles.meta}>Status: {workout.ended_at ? "Completed" : "Active"}</Text>
-              <Text style={styles.meta}>Activity: {formatActivityType(workout.activity_type)}</Text>
+              <Text style={styles.section}>Exercises</Text>
 
-              <View style={{ marginTop: theme.spacing.md, gap: 12 }}>
-                <PrimaryButton label="Refresh" onPress={load} />
+              {exercises.length === 0 ? (
+                <Text style={styles.meta}>
+                  No exercises listed for this workout.
+                </Text>
+              ) : (
+                <View style={{ marginTop: 10, gap: 10 }}>
+                  {exercises.map((ex, idx) => (
+                    <View key={`${ex.id ?? idx}`} style={styles.exerciseRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.exerciseName}>{ex.name}</Text>
+
+                        <Text style={styles.meta}>
+                          {typeof ex.sets === "number"
+                            ? `${ex.sets} sets`
+                            : "— sets"}
+                          {typeof ex.reps === "number"
+                            ? ` • ${ex.reps} reps`
+                            : ""}
+                          {typeof ex.durationSeconds === "number"
+                            ? ` • ${ex.durationSeconds}s`
+                            : ""}
+                        </Text>
+
+                        {ex.notes ? (
+                          <Text style={styles.notes}>{ex.notes}</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <View style={{ marginTop: theme.spacing.lg }}>
+                <PrimaryButton
+                  label="Mark Complete"
+                  onPress={onComplete}
+                  disabled
+                />
+                <View style={{ height: 12 }} />
                 <PrimaryButton label="Back" onPress={() => router.back()} />
               </View>
             </Card>
           </>
         ) : (
           <Card>
-            <Text style={styles.meta}>Session not found.</Text>
+            <Text style={styles.meta}>Workout not found.</Text>
             <View style={{ marginTop: theme.spacing.md }}>
               <PrimaryButton label="Back" onPress={() => router.back()} />
             </View>
@@ -331,41 +244,43 @@ const styles = StyleSheet.create({
   },
 
   center: { alignItems: "center", paddingVertical: 10 },
-
   section: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
-
-  timerTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  timerValue: {
+  body: {
     color: theme.colors.text,
-    fontSize: 56,
-    fontWeight: "900",
     marginTop: 10,
+    fontSize: theme.font.size.md,
+    fontWeight: "700",
   },
 
   meta: {
     color: theme.colors.textMuted,
-    marginTop: 8,
+    marginTop: 10,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
 
-  pill: {
-    backgroundColor: "rgba(255,255,255,0.06)",
+  errorText: { color: "#ff6b6b", fontWeight: "800" },
+
+  exerciseRow: {
+    padding: 12,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
+    backgroundColor: theme.colors.surface2,
   },
-  pillText: { color: theme.colors.textMuted, fontWeight: "900" },
-
-  errorText: { color: "#ff6b6b", fontWeight: "800" },
+  exerciseName: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.md,
+    fontWeight: "900",
+  },
+  notes: {
+    marginTop: 6,
+    color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
+    fontWeight: "700",
+  },
 });

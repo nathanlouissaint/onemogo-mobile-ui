@@ -60,8 +60,9 @@ export function WorkoutCalendar({
   defaultActivityType = "lifting",
   streakRiskHourLocal = 18,
 }: Props) {
-  const now = new Date();
-  const todayKey = ymdLocal(now);
+  // FIX #1: "now" must be stable for memo deps
+  const now = useMemo(() => new Date(), []);
+  const todayKey = useMemo(() => ymdLocal(now), [now]);
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(todayKey);
@@ -114,7 +115,8 @@ export function WorkoutCalendar({
   const leadingBlanks = mondayIndex(monthStart.getDay());
 
   const cells = useMemo(() => {
-    const out: Array<{ day: number | null; key: string }> = [];
+    // FIX #2: Array<T> -> T[]
+    const out: { day: number | null; key: string }[] = [];
     for (let i = 0; i < leadingBlanks; i++) out.push({ day: null, key: `b-${i}` });
     for (let day = 1; day <= monthDays; day++) out.push({ day, key: `d-${day}` });
     while (out.length % 7 !== 0) out.push({ day: null, key: `t-${out.length}` });
@@ -126,7 +128,7 @@ export function WorkoutCalendar({
     return completedByDay.get(selectedDay) ?? [];
   }, [selectedDay, completedByDay]);
 
-  const selectedHasWorkouts = selectedSessions.length > 0;
+  // FIX #3: remove unused variable selectedHasWorkouts
   const selectedIsToday = selectedDay === todayKey;
 
   const selectedMostRecentActivity = useMemo(() => {
@@ -223,7 +225,13 @@ export function WorkoutCalendar({
                 pressed && { opacity: 0.9 },
               ]}
             >
-              <Text style={[styles.dayNum, isToday && styles.dayNumToday, active && styles.dayNumActive]}>
+              <Text
+                style={[
+                  styles.dayNum,
+                  isToday && styles.dayNumToday,
+                  active && styles.dayNumActive,
+                ]}
+              >
                 {c.day}
               </Text>
 
@@ -241,7 +249,8 @@ export function WorkoutCalendar({
       {/* Selected day panel */}
       <View style={styles.panel}>
         <Text style={styles.sectionSmall}>
-          {selectedDay ?? "—"} • {selectedSessions.length} workout{selectedSessions.length === 1 ? "" : "s"}
+          {selectedDay ?? "—"} • {selectedSessions.length} workout
+          {selectedSessions.length === 1 ? "" : "s"}
         </Text>
 
         {selectedSessions.length > 0 ? (

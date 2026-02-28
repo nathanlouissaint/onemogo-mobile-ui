@@ -156,20 +156,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }
 
-  // Centralized routing guard (Option B: ignore onboarding)
+  // Centralized routing guard (no onboarding route)
   useEffect(() => {
     if (loading) return;
 
     const inAuth = segments.includes("login") || segments.includes("register");
-    const inOnboarding = segments.includes("onboarding");
 
     let next: string | null = null;
 
     if (!user) {
       if (!inAuth) next = "/login";
     } else {
-      // Logged in → always go to tabs
-      if (inAuth || inOnboarding) next = "/(tabs)";
+      if (inAuth) next = "/(tabs)";
     }
 
     if (!next) return;

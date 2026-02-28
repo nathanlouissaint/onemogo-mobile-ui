@@ -1,14 +1,19 @@
 // app/(tabs)/index.tsx
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { Screen } from "../../src/components/Screen";
+import { WorkoutCalendar } from "../../src/components/WorkoutCalendar";
 import { theme } from "../../src/constants/theme";
 
-import { getWorkouts } from "../../src/lib/workouts";
+import {
+  getActiveWorkoutSession,
+  listWorkoutSessions,
+  startWorkoutSession,
+} from "../../src/lib/workouts";
 import type { WorkoutSession } from "../../src/lib/workouts";
 
 import { useSession } from "../../src/session/SessionContext";
@@ -33,29 +38,110 @@ function getErrMsg(e: unknown, fallback: string) {
   return fallback;
 }
 
+function ymdLocal(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function startOfWeekLocal(now: Date) {
+  // Monday start
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const mondayBased = (day + 6) % 7; // Mon=0..Sun=6
+  d.setDate(d.getDate() - mondayBased);
+  return d;
+}
+
+function addDaysLocal(d: Date, days: number) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function computeDashboardMetrics(sessions: WorkoutSession[], weeklyGoalMin: number) {
+  const now = new Date();
+  const weekStart = startOfWeekLocal(now);
+  const weekStartMs = weekStart.getTime();
+
+  const completed = sessions.filter((s) => !!s.ended_at);
+
+  let weeklyWorkouts = 0;
+  let minutesThisWeek = 0;
+
+  for (const s of completed) {
+    const end = s.ended_at ? new Date(s.ended_at) : null;
+    if (!end || Number.isNaN(end.getTime())) continue;
+
+    if (end.getTime() >= weekStartMs) {
+      weeklyWorkouts += 1;
+      if (typeof s.duration_min === "number") minutesThisWeek += s.duration_min;
+    }
+  }
+
+  const daysWithCompleted = new Set<string>();
+  for (const s of completed) {
+    const end = s.ended_at ? new Date(s.ended_at) : null;
+    if (!end || Number.isNaN(end.getTime())) continue;
+    daysWithCompleted.add(ymdLocal(end));
+  }
+
+  const todayKey = ymdLocal(now);
+  const yesterdayKey = ymdLocal(addDaysLocal(now, -1));
+  let cursor = now;
+
+  if (!daysWithCompleted.has(todayKey)) {
+    if (daysWithCompleted.has(yesterdayKey)) cursor = addDaysLocal(now, -1);
+    else return { streak: 0, weeklyWorkouts, minutesThisWeek, weeklyGoalMin };
+  }
+
+  let streak = 0;
+  while (true) {
+    const key = ymdLocal(cursor);
+    if (!daysWithCompleted.has(key)) break;
+    streak += 1;
+    cursor = addDaysLocal(cursor, -1);
+  }
+
+  return { streak, weeklyWorkouts, minutesThisWeek, weeklyGoalMin };
+}
+
+function titleFromActivityType(activityType: string) {
+  const raw = String(activityType || "lifting").trim();
+  const label = raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Workout";
+  return `${label} Session`;
+}
+
 export default function HomeScreen() {
   const { user, loading: sessionLoading } = useSession();
   const userId = user?.id;
 
-  const [workouts, setWorkouts] = useState<WorkoutSession[]>([]);
+  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Placeholder metrics for now (replace later with real endpoints)
-  const data = useMemo(() => {
-    return {
-      name: user?.firstName || user?.username || "—",
-      streak: 6,
-      weeklyWorkouts: 4,
-      minutesThisWeek: 138,
-      weeklyGoalMin: 180,
-    };
-  }, [user]);
+  const weeklyGoalMin = 180; // move to profile/settings later
 
-  const progress = Math.min(1, data.minutesThisWeek / data.weeklyGoalMin);
+  const metrics = useMemo(() => {
+    const base = {
+      name: (user as any)?.firstName || (user as any)?.username || "—",
+      streak: 0,
+      weeklyWorkouts: 0,
+      minutesThisWeek: 0,
+      weeklyGoalMin,
+    };
+
+    if (!sessions.length) return base;
+
+    return { ...base, ...computeDashboardMetrics(sessions, weeklyGoalMin) };
+  }, [user, sessions, weeklyGoalMin]);
+
+  const progress = Math.min(1, metrics.minutesThisWeek / metrics.weeklyGoalMin);
   const pct = Math.round(progress * 100);
 
-  const fetchWorkouts = async () => {
+  const fetchSessions = async () => {
     if (sessionLoading) return;
 
     if (!userId) {
@@ -68,131 +154,176 @@ export default function HomeScreen() {
     setErr(null);
 
     try {
-      const list = await getWorkouts(userId);
-      setWorkouts(list || []);
+      const list = await listWorkoutSessions(userId);
+      setSessions(list || []);
     } catch (e: unknown) {
-      console.log("Dashboard fetchWorkouts error:", e);
-      setErr(getErrMsg(e, "Failed to load workouts"));
+      console.log("Dashboard fetchSessions error:", e);
+      setErr(getErrMsg(e, "Failed to load sessions"));
     } finally {
       setLoading(false);
     }
   };
 
+  const startFromCalendar = async (activityType?: string) => {
+    if (sessionLoading) return;
+
+    if (!userId) {
+      setErr("No user session found. Please log in again.");
+      return;
+    }
+
+    setErr(null);
+
+    try {
+      // Enforce single active session from dashboard actions too
+      const active = await getActiveWorkoutSession(userId);
+      if (active?.id) {
+        router.push({ pathname: "/workout/[id]", params: { id: active.id } });
+        return;
+      }
+
+      const type = activityType ?? "lifting";
+      const created = await startWorkoutSession({
+        userId,
+        title: titleFromActivityType(type),
+        activityType: type,
+      });
+
+      router.push({ pathname: "/workout/[id]", params: { id: created.id } });
+    } catch (e: unknown) {
+      console.log("Dashboard startFromCalendar error:", e);
+      setErr(getErrMsg(e, "Failed to start workout session"));
+    }
+  };
+
   useEffect(() => {
-    if (!sessionLoading && userId) fetchWorkouts();
+    if (!sessionLoading && userId) fetchSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionLoading, userId]);
 
-  const today = workouts?.[0];
+  const today = sessions?.[0];
 
-  const onStart = () => {
+  const onOpenTodaySession = () => {
     if (!today?.id) return;
-
-    router.push({
-      pathname: "/workout/[id]",
-      params: { id: String(today.id) },
-    });
+    router.push({ pathname: "/workout/[id]", params: { id: String(today.id) } });
   };
 
-  // Standardized to snake_case schema
   const todayTitle =
     (today?.title && String(today.title).trim()) ||
     (today?.activity_type ? `${formatActivityType(today.activity_type)} session` : "Workout session");
 
+  const statusLabel = today?.ended_at ? "Completed" : "Active";
+
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text style={styles.kicker}>Dashboard</Text>
-        <Text style={styles.title}>Welcome back, {data.name}</Text>
-        <Text style={styles.sub}>Stay consistent. Small wins compound.</Text>
-      </View>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.kicker}>Dashboard</Text>
+          <Text style={styles.title}>Welcome back, {metrics.name}</Text>
+          <Text style={styles.sub}>Stay consistent. Small wins compound.</Text>
+        </View>
 
-      <View style={styles.row}>
-        <Card style={styles.half}>
-          <Text style={styles.label}>Streak</Text>
-          <Text style={styles.value}>{data.streak}</Text>
-          <Text style={styles.meta}>days</Text>
-        </Card>
+        <View style={styles.row}>
+          <Card style={styles.half}>
+            <Text style={styles.label}>Streak</Text>
+            <Text style={styles.value}>{metrics.streak}</Text>
+            <Text style={styles.meta}>days</Text>
+          </Card>
 
-        <Card style={styles.half}>
-          <Text style={styles.label}>Workouts</Text>
-          <Text style={styles.value}>{data.weeklyWorkouts}</Text>
-          <Text style={styles.meta}>this week</Text>
-        </Card>
-      </View>
+          <Card style={styles.half}>
+            <Text style={styles.label}>Workouts</Text>
+            <Text style={styles.value}>{metrics.weeklyWorkouts}</Text>
+            <Text style={styles.meta}>this week</Text>
+          </Card>
+        </View>
 
-      <Card style={styles.progress}>
-        <View style={styles.progressTop}>
-          <View>
-            <Text style={styles.label}>Weekly minutes</Text>
-            <Text style={styles.value}>{data.minutesThisWeek}</Text>
-            <Text style={styles.meta}>of {data.weeklyGoalMin} min goal</Text>
+        <Card style={styles.progress}>
+          <View style={styles.progressTop}>
+            <View>
+              <Text style={styles.label}>Weekly minutes</Text>
+              <Text style={styles.value}>{metrics.minutesThisWeek}</Text>
+              <Text style={styles.meta}>of {metrics.weeklyGoalMin} min goal</Text>
+            </View>
+
+            <View style={styles.pill}>
+              <Text style={styles.pillText}>{pct}%</Text>
+            </View>
           </View>
 
-          <View style={styles.pill}>
-            <Text style={styles.pillText}>{pct}%</Text>
+          <View style={styles.track}>
+            <View style={[styles.fill, { width: `${pct}%` }]} />
           </View>
-        </View>
+        </Card>
 
-        <View style={styles.track}>
-          <View style={[styles.fill, { width: `${pct}%` }]} />
-        </View>
-      </Card>
-
-      <Card style={styles.today}>
-        <View style={styles.todayHeaderRow}>
-          <Text style={styles.section}>Today</Text>
-          {loading ? (
-            <View style={styles.todayStatus}>
-              <ActivityIndicator />
-            </View>
-          ) : null}
-        </View>
-
-        {!loading && err ? (
-          <>
-            <Text style={styles.errorText}>{err}</Text>
-            <View style={{ marginTop: theme.spacing.md }}>
-              <PrimaryButton label="Retry" onPress={fetchWorkouts} />
-            </View>
-          </>
-        ) : null}
-
-        {!loading && !err && !today ? (
-          <>
-            <Text style={styles.meta}>No workout sessions available yet.</Text>
-            <View style={{ marginTop: theme.spacing.md }}>
-              <PrimaryButton label="Refresh" onPress={fetchWorkouts} />
-            </View>
-          </>
-        ) : null}
-
-        {!loading && !err && today ? (
-          <>
-            <View style={styles.todayRow}>
-              <Text style={styles.workoutTitle}>{todayTitle}</Text>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>
-                  {today.activity_type ? formatActivityType(today.activity_type) : "—"}
-                </Text>
+        <Card style={styles.today}>
+          <View style={styles.todayHeaderRow}>
+            <Text style={styles.section}>Today</Text>
+            {loading ? (
+              <View style={styles.todayStatus}>
+                <ActivityIndicator />
               </View>
-            </View>
+            ) : null}
+          </View>
 
-            <Text style={styles.meta}>
-              {typeof today.duration_min === "number" ? `${today.duration_min} minutes` : "Duration —"}
-            </Text>
+          {!loading && err ? (
+            <>
+              <Text style={styles.errorText}>{err}</Text>
+              <View style={{ marginTop: theme.spacing.md }}>
+                <PrimaryButton label="Retry" onPress={fetchSessions} />
+              </View>
+            </>
+          ) : null}
 
-            <View style={{ marginTop: theme.spacing.md }}>
-              <PrimaryButton label="Start Workout" onPress={onStart} />
-            </View>
-          </>
-        ) : null}
-      </Card>
+          {!loading && !err && !today ? (
+            <>
+              <Text style={styles.meta}>No workout sessions available yet.</Text>
+              <View style={{ marginTop: theme.spacing.md }}>
+                <PrimaryButton label="Refresh" onPress={fetchSessions} />
+              </View>
+            </>
+          ) : null}
+
+          {!loading && !err && today ? (
+            <>
+              <View style={styles.todayRow}>
+                <Text style={styles.workoutTitle}>{todayTitle}</Text>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {today.activity_type ? formatActivityType(today.activity_type) : "—"}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.meta}>
+                {statusLabel}
+                {" • "}
+                {typeof today.duration_min === "number" ? `${today.duration_min} minutes` : "Duration —"}
+              </Text>
+
+              <View style={{ marginTop: theme.spacing.md }}>
+                <PrimaryButton
+                  label={today.ended_at ? "View Session" : "Continue Session"}
+                  onPress={onOpenTodaySession}
+                />
+              </View>
+            </>
+          ) : null}
+        </Card>
+
+        <WorkoutCalendar
+          sessions={sessions}
+          defaultActivityType="lifting"
+          onStartWorkout={startFromCalendar}
+          onOpenSession={(id) => router.push({ pathname: "/workout/[id]", params: { id } })}
+        />
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: { paddingBottom: 28 },
+
   header: { marginBottom: theme.spacing.lg },
   kicker: {
     color: theme.colors.textFaint,

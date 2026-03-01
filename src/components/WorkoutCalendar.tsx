@@ -51,6 +51,9 @@ type Props = {
   defaultActivityType?: string; // used for "Start Workout" CTA
 
   streakRiskHourLocal?: number; // default 18 (6pm)
+
+  // NEW: date tap hook (for planning)
+  onDayPress?: (date: Date, dayKey: string) => void;
 };
 
 export function WorkoutCalendar({
@@ -59,6 +62,7 @@ export function WorkoutCalendar({
   onStartWorkout,
   defaultActivityType = "lifting",
   streakRiskHourLocal = 18,
+  onDayPress,
 }: Props) {
   // FIX #1: "now" must be stable for memo deps
   const now = useMemo(() => new Date(), []);
@@ -115,7 +119,6 @@ export function WorkoutCalendar({
   const leadingBlanks = mondayIndex(monthStart.getDay());
 
   const cells = useMemo(() => {
-    // FIX #2: Array<T> -> T[]
     const out: { day: number | null; key: string }[] = [];
     for (let i = 0; i < leadingBlanks; i++) out.push({ day: null, key: `b-${i}` });
     for (let day = 1; day <= monthDays; day++) out.push({ day, key: `d-${day}` });
@@ -128,7 +131,6 @@ export function WorkoutCalendar({
     return completedByDay.get(selectedDay) ?? [];
   }, [selectedDay, completedByDay]);
 
-  // FIX #3: remove unused variable selectedHasWorkouts
   const selectedIsToday = selectedDay === todayKey;
 
   const selectedMostRecentActivity = useMemo(() => {
@@ -143,6 +145,12 @@ export function WorkoutCalendar({
   const onStartSimilar = () => {
     const activity = selectedMostRecentActivity ?? defaultActivityType;
     onStartWorkout?.(activity);
+  };
+
+  // NEW: unified day press handler
+  const handleDayPress = (date: Date, dayKey: string) => {
+    setSelectedDay(dayKey); // keep your existing selected-day behavior
+    onDayPress?.(date, dayKey); // emit up to parent for plan drawer
   };
 
   return (
@@ -217,7 +225,7 @@ export function WorkoutCalendar({
           return (
             <Pressable
               key={c.key}
-              onPress={() => setSelectedDay(dayKey)}
+              onPress={() => handleDayPress(d, dayKey)}
               style={({ pressed }) => [
                 styles.cell,
                 isToday && styles.cellToday,
@@ -269,7 +277,6 @@ export function WorkoutCalendar({
               </Pressable>
             ))}
 
-            {/* Action: start similar (starts today, not back-dated) */}
             {onStartWorkout ? (
               <View style={{ marginTop: theme.spacing.sm }}>
                 <PrimaryButton label="Start Similar Today" onPress={onStartSimilar} />

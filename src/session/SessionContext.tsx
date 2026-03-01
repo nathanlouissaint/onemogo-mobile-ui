@@ -54,10 +54,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Prevent redirect thrash (replace loops / segment churn)
   const lastRouteRef = useRef<string>("");
 
-  // Initialize + listen to auth changes
   useEffect(() => {
     let mounted = true;
 
@@ -71,8 +69,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const session = data.session;
-      setUser(session?.user ? mapSupabaseUser(session.user) : null);
+      setUser(data.session?.user ? mapSupabaseUser(data.session.user) : null);
       setLoading(false);
     }
 
@@ -80,10 +77,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
-
-      // Reset dedupe whenever auth state changes to avoid "stuck" routing
       lastRouteRef.current = "";
-
       setUser(session?.user ? mapSupabaseUser(session.user) : null);
     });
 
@@ -99,8 +93,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       return;
     }
-    const session = data.session;
-    setUser(session?.user ? mapSupabaseUser(session.user) : null);
+    setUser(data.session?.user ? mapSupabaseUser(data.session.user) : null);
   }
 
   async function login(email: string, password: string) {
@@ -138,14 +131,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     if (error) throw error;
 
-    // Only mark the app as "logged in" if a session exists.
     if (data.session?.user) {
       const mapped = mapSupabaseUser(data.session.user);
       setUser(mapped);
       return mapped;
     }
 
-    // No session yet; return user shape but do NOT set app session state
     const mapped = data.user ? mapSupabaseUser(data.user) : null;
     if (!mapped) throw new Error("Signup succeeded but no user returned.");
     return mapped;
@@ -156,22 +147,26 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }
 
-  // Centralized routing guard (no onboarding route)
+  // Centralized routing guard: auth vs app tabs (NO onboarding until route exists)
   useEffect(() => {
     if (loading) return;
 
-    const inAuth = segments.includes("login") || segments.includes("register");
+    const seg0 = segments[0];
+    const inAuth =
+      seg0 === "(auth)" || seg0 === "login" || seg0 === "register";
+    const inTabs = seg0 === "(tabs)";
 
     let next: string | null = null;
 
     if (!user) {
       if (!inAuth) next = "/login";
     } else {
-      if (inAuth) next = "/(tabs)";
+      if (!inTabs && inAuth) next = "/(tabs)";
+      // If authed and not in auth, do nothing—let user stay where they are.
+      // (prevents stomping deep links like /workout/[id])
     }
 
     if (!next) return;
-
     if (lastRouteRef.current === next) return;
     lastRouteRef.current = next;
 

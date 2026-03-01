@@ -1,7 +1,13 @@
 // app/(tabs)/index.tsx
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { Card } from "../../src/components/Card";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
@@ -18,6 +24,9 @@ import type { WorkoutSession } from "../../src/lib/workouts";
 
 import { useSession } from "../../src/session/SessionContext";
 
+// plan drawer
+import { PlanDayDrawer } from "../../src/plans/PlanDayDrawer";
+
 function formatActivityType(v?: string | null) {
   if (!v) return "—";
   const s = String(v).toLowerCase();
@@ -29,7 +38,8 @@ function getErrMsg(e: unknown, fallback: string) {
   if (e && typeof e === "object") {
     const anyErr = e as any;
     if (typeof anyErr.message === "string") return anyErr.message;
-    if (typeof anyErr.error_description === "string") return anyErr.error_description;
+    if (typeof anyErr.error_description === "string")
+      return anyErr.error_description;
     if (typeof anyErr.details === "string") return anyErr.details;
     if (typeof anyErr.hint === "string") return anyErr.hint;
     if (typeof anyErr.code === "string" && typeof anyErr.message === "string")
@@ -61,7 +71,10 @@ function addDaysLocal(d: Date, days: number) {
   return x;
 }
 
-function computeDashboardMetrics(sessions: WorkoutSession[], weeklyGoalMin: number) {
+function computeDashboardMetrics(
+  sessions: WorkoutSession[],
+  weeklyGoalMin: number
+) {
   const now = new Date();
   const weekStart = startOfWeekLocal(now);
   const weekStartMs = weekStart.getTime();
@@ -122,6 +135,10 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // plan drawer state
+  const [planDrawerOpen, setPlanDrawerOpen] = useState(false);
+  const [selectedPlanDate, setSelectedPlanDate] = useState<string | null>(null);
+
   const weeklyGoalMin = 180; // move to profile/settings later
 
   const metrics = useMemo(() => {
@@ -175,7 +192,6 @@ export default function HomeScreen() {
     setErr(null);
 
     try {
-      // Enforce single active session from dashboard actions too
       const active = await getActiveWorkoutSession(userId);
       if (active?.id) {
         router.push({ pathname: "/workout/[id]", params: { id: active.id } });
@@ -196,6 +212,12 @@ export default function HomeScreen() {
     }
   };
 
+  // UPDATED: use the dayKey emitted by WorkoutCalendar (best for timezone safety)
+  const onDayPressForPlan = (_date: Date, dayKey: string) => {
+    setSelectedPlanDate(dayKey);
+    setPlanDrawerOpen(true);
+  };
+
   useEffect(() => {
     if (!sessionLoading && userId) fetchSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -210,13 +232,18 @@ export default function HomeScreen() {
 
   const todayTitle =
     (today?.title && String(today.title).trim()) ||
-    (today?.activity_type ? `${formatActivityType(today.activity_type)} session` : "Workout session");
+    (today?.activity_type
+      ? `${formatActivityType(today.activity_type)} session`
+      : "Workout session");
 
   const statusLabel = today?.ended_at ? "Completed" : "Active";
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <Text style={styles.kicker}>Dashboard</Text>
           <Text style={styles.title}>Welcome back, {metrics.name}</Text>
@@ -242,7 +269,9 @@ export default function HomeScreen() {
             <View>
               <Text style={styles.label}>Weekly minutes</Text>
               <Text style={styles.value}>{metrics.minutesThisWeek}</Text>
-              <Text style={styles.meta}>of {metrics.weeklyGoalMin} min goal</Text>
+              <Text style={styles.meta}>
+                of {metrics.weeklyGoalMin} min goal
+              </Text>
             </View>
 
             <View style={styles.pill}>
@@ -289,7 +318,9 @@ export default function HomeScreen() {
                 <Text style={styles.workoutTitle}>{todayTitle}</Text>
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>
-                    {today.activity_type ? formatActivityType(today.activity_type) : "—"}
+                    {today.activity_type
+                      ? formatActivityType(today.activity_type)
+                      : "—"}
                   </Text>
                 </View>
               </View>
@@ -297,7 +328,9 @@ export default function HomeScreen() {
               <Text style={styles.meta}>
                 {statusLabel}
                 {" • "}
-                {typeof today.duration_min === "number" ? `${today.duration_min} minutes` : "Duration —"}
+                {typeof today.duration_min === "number"
+                  ? `${today.duration_min} minutes`
+                  : "Duration —"}
               </Text>
 
               <View style={{ marginTop: theme.spacing.md }}>
@@ -314,8 +347,19 @@ export default function HomeScreen() {
           sessions={sessions}
           defaultActivityType="lifting"
           onStartWorkout={startFromCalendar}
-          onOpenSession={(id) => router.push({ pathname: "/workout/[id]", params: { id } })}
+          onOpenSession={(id) =>
+            router.push({ pathname: "/workout/[id]", params: { id } })
+          }
+          onDayPress={onDayPressForPlan}
         />
+
+        {selectedPlanDate && (
+          <PlanDayDrawer
+            visible={planDrawerOpen}
+            onClose={() => setPlanDrawerOpen(false)}
+            planDate={selectedPlanDate}
+          />
+        )}
       </ScrollView>
     </Screen>
   );

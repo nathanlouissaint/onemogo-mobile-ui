@@ -1,5 +1,5 @@
 // src/components/WorkoutCalendar.tsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Card } from "./Card";
@@ -42,6 +42,8 @@ function mondayIndex(day0Sun: number) {
   return (day0Sun + 6) % 7;
 }
 
+type StreakRiskLevel = "none" | "soft" | "medium" | "critical";
+
 type Props = {
   sessions: WorkoutSession[];
   onOpenSession?: (id: string) => void;
@@ -49,8 +51,6 @@ type Props = {
   // Action hooks (dashboard CTAs)
   onStartWorkout?: (activityType?: string) => void; // start today
   defaultActivityType?: string; // used for "Start Workout" CTA
-
-  streakRiskHourLocal?: number; // default 18 (6pm)
 
   // NEW: date tap hook (for planning)
   onDayPress?: (date: Date, dayKey: string) => void;
@@ -61,22 +61,26 @@ export function WorkoutCalendar({
   onOpenSession,
   onStartWorkout,
   defaultActivityType = "lifting",
-  streakRiskHourLocal = 18,
   onDayPress,
 }: Props) {
-  // FIX #1: "now" must be stable for memo deps
-  const now = useMemo(() => new Date(), []);
+  // time-based UI updates (needed for risk escalation)
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const todayKey = useMemo(() => ymdLocal(now), [now]);
 
   const [cursor, setCursor] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(todayKey);
 
   const activeSession = useMemo(() => {
-    // If multiple exist (shouldn't), pick the most recent
     const actives = sessions.filter((s) => !s.ended_at);
     actives.sort((a, b) => {
-      const ta = new Date(a.started_at ?? a.created_at).getTime();
-      const tb = new Date(b.started_at ?? b.created_at).getTime();
+      const ta = new Date((a as any).started_at ?? (a as any).created_at).getTime();
+      const tb = new Date((b as any).started_at ?? (b as any).created_at).getTime();
       return tb - ta;
     });
     return actives[0] ?? null;
@@ -96,8 +100,8 @@ export function WorkoutCalendar({
 
     for (const [k, arr] of map.entries()) {
       arr.sort((a, b) => {
-        const ta = new Date(a.ended_at ?? a.created_at).getTime();
-        const tb = new Date(b.ended_at ?? b.created_at).getTime();
+        const ta = new Date((a as any).ended_at ?? (a as any).created_at).getTime();
+        const tb = new Date((b as any).ended_at ?? (b as any).created_at).getTime();
         return tb - ta;
       });
       map.set(k, arr);
@@ -109,10 +113,21 @@ export function WorkoutCalendar({
     return (completedByDay.get(todayKey)?.length ?? 0) > 0;
   }, [completedByDay, todayKey]);
 
-  const streakAtRisk = useMemo(() => {
+  // HARD-CODED thresholds (local time)
+  // soft: 16:00+, medium: 18:00+, critical: 21:00+
+  const streakRiskLevel: StreakRiskLevel = useMemo(() => {
+    // if already completed or currently active, no risk
+    if (hasCompletedToday || !!activeSession) return "none";
+
     const hour = now.getHours();
-    return hour >= streakRiskHourLocal && !hasCompletedToday && !activeSession;
-  }, [now, streakRiskHourLocal, hasCompletedToday, activeSession]);
+
+    if (hour >= 21) return "critical";
+    if (hour >= 18) return "medium";
+    if (hour >= 16) return "soft";
+    return "none";
+  }, [now, hasCompletedToday, activeSession]);
+
+  const showRiskBanner = streakRiskLevel !== "none";
 
   const monthStart = startOfMonth(cursor);
   const monthDays = daysInMonth(cursor);
@@ -147,11 +162,23 @@ export function WorkoutCalendar({
     onStartWorkout?.(activity);
   };
 
-  // NEW: unified day press handler
   const handleDayPress = (date: Date, dayKey: string) => {
-    setSelectedDay(dayKey); // keep your existing selected-day behavior
-    onDayPress?.(date, dayKey); // emit up to parent for plan drawer
+    setSelectedDay(dayKey);
+    onDayPress?.(date, dayKey);
   };
+
+  const riskBannerCopy = useMemo(() => {
+    if (streakRiskLevel === "soft") {
+      return { title: "Stay on track", meta: "No completed workout today. Get one in before the evening." };
+    }
+    if (streakRiskLevel === "medium") {
+      return { title: "Streak at risk", meta: "No completed workout today. Start one now." };
+    }
+    if (streakRiskLevel === "critical") {
+      return { title: "Last chance tonight", meta: "Your streak ends today if you don’t train. Start now." };
+    }
+    return null;
+  }, [streakRiskLevel]);
 
   return (
     <Card style={styles.card}>
@@ -187,12 +214,19 @@ export function WorkoutCalendar({
         </View>
       ) : null}
 
-      {/* Streak at risk banner */}
-      {streakAtRisk ? (
-        <View style={styles.risk}>
+      {/* Streak risk escalation banner */}
+      {showRiskBanner && riskBannerCopy ? (
+        <View
+          style={[
+            styles.risk,
+            streakRiskLevel === "soft" && styles.riskSoft,
+            streakRiskLevel === "medium" && styles.riskMedium,
+            streakRiskLevel === "critical" && styles.riskCritical,
+          ]}
+        >
           <View style={{ flex: 1 }}>
-            <Text style={styles.riskTitle}>Streak at risk</Text>
-            <Text style={styles.riskMeta}>No completed workout today. Start one now.</Text>
+            <Text style={styles.riskTitle}>{riskBannerCopy.title}</Text>
+            <Text style={styles.riskMeta}>{riskBannerCopy.meta}</Text>
           </View>
           <Pressable
             onPress={onStart}
@@ -222,6 +256,8 @@ export function WorkoutCalendar({
           const active = selectedDay === dayKey;
           const isToday = dayKey === todayKey;
 
+          const todayRisk = isToday && streakRiskLevel !== "none";
+
           return (
             <Pressable
               key={c.key}
@@ -230,6 +266,8 @@ export function WorkoutCalendar({
                 styles.cell,
                 isToday && styles.cellToday,
                 active && styles.cellActive,
+                todayRisk && styles.cellTodayRisk,
+                streakRiskLevel === "critical" && isToday && styles.cellTodayCritical,
                 pressed && { opacity: 0.9 },
               ]}
             >
@@ -238,6 +276,7 @@ export function WorkoutCalendar({
                   styles.dayNum,
                   isToday && styles.dayNumToday,
                   active && styles.dayNumActive,
+                  todayRisk && styles.dayNumRisk,
                 ]}
               >
                 {c.day}
@@ -247,6 +286,18 @@ export function WorkoutCalendar({
                 <View style={styles.dotRow}>
                   <View style={styles.dot} />
                   <Text style={styles.count}>{count}</Text>
+                </View>
+              ) : todayRisk ? (
+                <View style={styles.dotRow}>
+                  <View
+                    style={[
+                      styles.riskDot,
+                      streakRiskLevel === "soft" && styles.riskDotSoft,
+                      streakRiskLevel === "medium" && styles.riskDotMedium,
+                      streakRiskLevel === "critical" && styles.riskDotCritical,
+                    ]}
+                  />
+                  <Text style={styles.count}>!</Text>
                 </View>
               ) : null}
             </Pressable>
@@ -351,16 +402,27 @@ const styles = StyleSheet.create({
   },
   bannerBtnText: { color: theme.colors.text, fontWeight: "900" },
 
+  // risk banner base
   risk: {
     marginTop: 10,
     padding: 12,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: "rgba(255,107,107,0.35)",
-    backgroundColor: "rgba(255,107,107,0.10)",
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  riskSoft: {
+    borderColor: "rgba(250, 204, 21, 0.45)",
+    backgroundColor: "rgba(250, 204, 21, 0.10)",
+  },
+  riskMedium: {
+    borderColor: "rgba(255,107,107,0.35)",
+    backgroundColor: "rgba(255,107,107,0.10)",
+  },
+  riskCritical: {
+    borderColor: "rgba(255,107,107,0.60)",
+    backgroundColor: "rgba(255,107,107,0.18)",
   },
   riskTitle: { color: theme.colors.text, fontWeight: "900" },
   riskMeta: { color: theme.colors.textMuted, marginTop: 2, fontWeight: "700" },
@@ -369,7 +431,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,107,107,0.55)",
+    borderColor: theme.colors.accent,
+    backgroundColor: "rgba(10,132,255,0.10)",
   },
   riskBtnText: { color: theme.colors.text, fontWeight: "900" },
 
@@ -402,13 +465,31 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
   },
 
+  // new: risk highlighting for today cell
+  cellTodayRisk: {
+    borderWidth: 1,
+    borderColor: "rgba(255,107,107,0.45)",
+    backgroundColor: "rgba(255,107,107,0.08)",
+  },
+  cellTodayCritical: {
+    borderColor: "rgba(255,107,107,0.70)",
+    backgroundColor: "rgba(255,107,107,0.14)",
+  },
+
   dayNum: { color: theme.colors.textMuted, fontWeight: "900" },
   dayNumToday: { color: theme.colors.text },
   dayNumActive: { color: theme.colors.text },
+  dayNumRisk: { color: theme.colors.text },
 
   dotRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
   dot: { width: 6, height: 6, borderRadius: 999, backgroundColor: theme.colors.accent },
   count: { color: theme.colors.textMuted, fontWeight: "900", fontSize: 12 },
+
+  // new: risk dot variants
+  riskDot: { width: 6, height: 6, borderRadius: 999 },
+  riskDotSoft: { backgroundColor: "rgba(250, 204, 21, 0.95)" },
+  riskDotMedium: { backgroundColor: "rgba(255,107,107,0.95)" },
+  riskDotCritical: { backgroundColor: "rgba(255,107,107,1.0)" },
 
   panel: { marginTop: 14 },
   sectionSmall: { color: theme.colors.textFaint, fontWeight: "900" },

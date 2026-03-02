@@ -127,6 +127,43 @@ function titleFromActivityType(activityType: string) {
   return `${label} Session`;
 }
 
+// Pick the best candidate for the "Today" card.
+// Priority:
+// 1) Active session (not ended)
+// 2) Most recent session that started/created today (local)
+// 3) Most recent session overall
+function pickTodaySession(sessions: WorkoutSession[]) {
+  if (!sessions?.length) return null;
+
+  const active = sessions.find((s) => !s.ended_at);
+  if (active) return active;
+
+  const todayKey = ymdLocal(new Date());
+
+  const sameDay = sessions
+    .map((s) => {
+      const base = (s as any)?.started_at ?? (s as any)?.created_at ?? s.ended_at;
+      const dt = base ? new Date(base) : null;
+      return { s, dt };
+    })
+    .filter((x) => x.dt && !Number.isNaN(x.dt!.getTime()))
+    .filter((x) => ymdLocal(x.dt as Date) === todayKey)
+    .sort((a, b) => (b.dt as Date).getTime() - (a.dt as Date).getTime());
+
+  if (sameDay.length) return sameDay[0]!.s;
+
+  const sorted = sessions
+    .map((s) => {
+      const base = (s as any)?.started_at ?? (s as any)?.created_at ?? s.ended_at;
+      const dt = base ? new Date(base) : null;
+      return { s, dt };
+    })
+    .filter((x) => x.dt && !Number.isNaN(x.dt!.getTime()))
+    .sort((a, b) => (b.dt as Date).getTime() - (a.dt as Date).getTime());
+
+  return sorted[0]?.s ?? sessions[0] ?? null;
+}
+
 export default function HomeScreen() {
   const { user, loading: sessionLoading } = useSession();
   const userId = user?.id;
@@ -212,7 +249,7 @@ export default function HomeScreen() {
     }
   };
 
-  // UPDATED: use the dayKey emitted by WorkoutCalendar (best for timezone safety)
+  // use dayKey emitted by WorkoutCalendar (timezone-safe local YYYY-MM-DD)
   const onDayPressForPlan = (_date: Date, dayKey: string) => {
     setSelectedPlanDate(dayKey);
     setPlanDrawerOpen(true);
@@ -223,7 +260,7 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionLoading, userId]);
 
-  const today = sessions?.[0];
+  const today = useMemo(() => pickTodaySession(sessions), [sessions]);
 
   const onOpenTodaySession = () => {
     if (!today?.id) return;
@@ -356,7 +393,10 @@ export default function HomeScreen() {
         {selectedPlanDate && (
           <PlanDayDrawer
             visible={planDrawerOpen}
-            onClose={() => setPlanDrawerOpen(false)}
+            onClose={() => {
+              setPlanDrawerOpen(false);
+              setSelectedPlanDate(null);
+            }}
             planDate={selectedPlanDate}
           />
         )}

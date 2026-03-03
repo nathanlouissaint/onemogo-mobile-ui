@@ -12,6 +12,9 @@ export type WorkoutSession = {
   ended_at: string | null;
   duration_min: number | null;
 
+  // NEW: links an executed session back to a planned workout
+  plan_id: string | null;
+
   created_at: string;
   updated_at: string;
 };
@@ -32,7 +35,7 @@ function supabaseErrorToError(e: any, fallback: string) {
 }
 
 const SESSION_SELECT =
-  "id,user_id,title,activity_type,started_at,ended_at,duration_min,created_at,updated_at";
+  "id,user_id,title,activity_type,started_at,ended_at,duration_min,plan_id,created_at,updated_at";
 
 /**
  * List sessions for a user (newest first)
@@ -60,11 +63,13 @@ export async function startWorkoutSession(params: {
   title?: string | null;
   activityType?: string | null;
   startedAt?: string; // ISO string
+  planId?: string | null; // NEW: start from a plan
 }): Promise<WorkoutSession> {
   const payload: any = {
     user_id: params.userId,
     title: params.title ?? "Workout",
     activity_type: params.activityType ?? "strength",
+    plan_id: params.planId ?? null,
   };
   if (params.startedAt) payload.started_at = params.startedAt;
 

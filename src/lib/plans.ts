@@ -1,14 +1,26 @@
 // src/lib/plans.ts
 import { supabase } from "./supabase";
 
+export type PlannedWorkoutStatus = "planned" | "completed" | "skipped";
+
 export type PlannedWorkout = {
   id: string;
   user_id: string;
+
   plan_date: string; // YYYY-MM-DD (local day key)
   template_id: string | null;
   title: string | null;
+
+  // NEW: required for Start-from-Plan
+  activity_type: string;
+
   scheduled_time: string | null; // "HH:MM:SS" (Supabase time)
   notes: string | null;
+
+  status: PlannedWorkoutStatus;
+  planned_duration_min: number | null;
+  planned_rpe: number | null;
+
   created_at: string;
   updated_at: string;
 };
@@ -16,15 +28,28 @@ export type PlannedWorkout = {
 export type UpsertPlanInput = {
   userId: string;
   planDate: string; // YYYY-MM-DD (local)
+
   templateId?: string | null;
   title?: string | null;
+
+  // NEW: optional on input, but stored NOT NULL in DB (default 'lifting')
+  activityType?: string | null;
+
   scheduledTime?: string | null; // "HH:MM:SS" or null
   notes?: string | null;
+
+  // Optional updates
+  status?: PlannedWorkoutStatus;
+  plannedDurationMin?: number | null;
+  plannedRpe?: number | null;
 };
+
+// Keep selects explicit so schema changes don’t silently break UI assumptions
+const PLAN_SELECT =
+  "id,user_id,plan_date,template_id,title,activity_type,scheduled_time,notes,status,planned_duration_min,planned_rpe,created_at,updated_at";
 
 // ---------- helpers ----------
 export function toISODate(d: Date): string {
-  // Local date -> YYYY-MM-DD
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -32,33 +57,63 @@ export function toISODate(d: Date): string {
 }
 
 export function toTimeString(d: Date): string {
-  // Date -> "HH:MM:SS" local
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}:00`;
 }
 
 function isISODate(v: string) {
-  // strict YYYY-MM-DD
   return /^\d{4}-\d{2}-\d{2}$/.test(v);
 }
 
 export function normalizePlanDate(planDate: string): string {
-  // Accept only YYYY-MM-DD. If a full ISO timestamp sneaks in, coerce safely.
-  // IMPORTANT: if you pass UTC timestamps here, the date may shift depending on timezone.
-  // The correct upstream behavior is to use local date keys (toISODate).
   const s = String(planDate ?? "").trim();
 
   if (isISODate(s)) return s;
 
-  // If someone passed an ISO datetime string, try to parse it and convert to local YYYY-MM-DD.
   const parsed = new Date(s);
   if (!Number.isNaN(parsed.getTime())) {
     return toISODate(parsed);
   }
 
-  // Last resort: fail loudly rather than silently missing rows
   throw new Error(`Invalid planDate (expected YYYY-MM-DD): "${planDate}"`);
+}
+
+function normalizeRpe(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) throw new Error(`Invalid plannedRpe: "${String(v)}"`);
+  const i = Math.round(n);
+  if (i < 1 || i > 10) throw new Error("plannedRpe must be between 1 and 10");
+  return i;
+}
+
+function normalizeDurationMin(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n))
+    throw new Error(`Invalid plannedDurationMin: "${String(v)}"`);
+  const i = Math.round(n);
+  if (i < 0) throw new Error("plannedDurationMin must be >= 0");
+  return i;
+}
+
+function normalizeActivityType(v: unknown): string {
+  const s = String(v ?? "").trim();
+  return s.length ? s : "lifting";
+}
+
+function startOfMonthLocal(d: Date) {
+  const x = new Date(d);
+  x.setDate(1);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfMonthLocal(d: Date) {
+  const x = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  x.setHours(0, 0, 0, 0);
+  return x;
 }
 
 // ---------- queries ----------
@@ -67,7 +122,7 @@ export async function getPlanForDate(userId: string, planDate: string) {
 
   const { data, error } = await supabase
     .from("planned_workouts")
-    .select("*")
+    .select(PLAN_SELECT)
     .eq("user_id", userId)
     .eq("plan_date", key)
     .maybeSingle();
@@ -76,10 +131,22 @@ export async function getPlanForDate(userId: string, planDate: string) {
   return data as PlannedWorkout | null;
 }
 
+export async function getPlanById(planId: string) {
+  const { data, error } = await supabase
+    .from("planned_workouts")
+    .select(PLAN_SELECT)
+    .eq("id", planId)
+    .single();
+
+  if (error) throw error;
+  return data as PlannedWorkout;
+}
+
 export async function upsertPlan(input: UpsertPlanInput) {
   const key = normalizePlanDate(input.planDate);
 
-  const payload = {
+  // Only include optional fields if the caller provided them
+  const payload: any = {
     user_id: input.userId,
     plan_date: key,
     template_id: input.templateId ?? null,
@@ -88,12 +155,27 @@ export async function upsertPlan(input: UpsertPlanInput) {
     notes: input.notes ?? null,
   };
 
+  // activity_type:
+  // - if provided, set it
+  // - if not provided, do NOT overwrite existing row (important)
+  if (input.activityType !== undefined) {
+    payload.activity_type = normalizeActivityType(input.activityType);
+  }
+
+  if (input.status !== undefined) payload.status = input.status;
+
+  if (input.plannedDurationMin !== undefined) {
+    payload.planned_duration_min = normalizeDurationMin(input.plannedDurationMin);
+  }
+
+  if (input.plannedRpe !== undefined) {
+    payload.planned_rpe = normalizeRpe(input.plannedRpe);
+  }
+
   const { data, error } = await supabase
     .from("planned_workouts")
-    .upsert(payload, {
-      onConflict: "user_id,plan_date",
-    })
-    .select("*")
+    .upsert(payload, { onConflict: "user_id,plan_date" })
+    .select(PLAN_SELECT)
     .single();
 
   if (error) throw error;
@@ -114,15 +196,15 @@ export async function deletePlanByDate(userId: string, planDate: string) {
 
 export async function listPlansForRange(
   userId: string,
-  startDate: string, // YYYY-MM-DD
-  endDate: string // YYYY-MM-DD
+  startDate: string,
+  endDate: string
 ) {
   const startKey = normalizePlanDate(startDate);
   const endKey = normalizePlanDate(endDate);
 
   const { data, error } = await supabase
     .from("planned_workouts")
-    .select("*")
+    .select(PLAN_SELECT)
     .eq("user_id", userId)
     .gte("plan_date", startKey)
     .lte("plan_date", endKey)
@@ -131,3 +213,38 @@ export async function listPlansForRange(
   if (error) throw error;
   return (data ?? []) as PlannedWorkout[];
 }
+
+export async function listPlansForMonth(userId: string, monthCursor: Date) {
+  const start = toISODate(startOfMonthLocal(monthCursor));
+  const end = toISODate(endOfMonthLocal(monthCursor));
+  return listPlansForRange(userId, start, end);
+}
+
+// ---------- status helpers ----------
+export async function setPlanStatusByDate(params: {
+  userId: string;
+  planDate: string;
+  status: PlannedWorkoutStatus;
+}) {
+  const key = normalizePlanDate(params.planDate);
+
+  const { data, error } = await supabase
+    .from("planned_workouts")
+    .update({ status: params.status })
+    .eq("user_id", params.userId)
+    .eq("plan_date", key)
+    .select(PLAN_SELECT)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as PlannedWorkout | null;
+}
+
+export const markPlanCompletedByDate = (userId: string, planDate: string) =>
+  setPlanStatusByDate({ userId, planDate, status: "completed" });
+
+export const markPlanSkippedByDate = (userId: string, planDate: string) =>
+  setPlanStatusByDate({ userId, planDate, status: "skipped" });
+
+export const resetPlanToPlannedByDate = (userId: string, planDate: string) =>
+  setPlanStatusByDate({ userId, planDate, status: "planned" });

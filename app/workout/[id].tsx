@@ -15,51 +15,50 @@ import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { Screen } from "../../src/components/Screen";
 import { theme } from "../../src/constants/theme";
 
-import { getWorkoutById } from "../../src/lib/workouts";
+import {
+  completeWorkoutSession,
+  getWorkoutSessionById,
+} from "../../src/lib/workouts";
+import type { WorkoutSession } from "../../src/lib/workouts";
+
 import { useSession } from "../../src/session/SessionContext";
 
-// Local types (kept for your current UI shape)
-type WorkoutExercise = {
-  id?: string;
-  name: string;
-  sets?: number | null;
-  reps?: number | null;
-  durationSeconds?: number | null;
-  notes?: string | null;
-};
-
-type WorkoutDetail = {
-  id: string;
-  title: string;
-  description?: string | null;
-  difficulty?: string | null;
-  durationMinutes?: number | null;
-  exercises?: WorkoutExercise[];
-};
-
-function formatDifficulty(v?: string | null) {
+function formatActivityType(v?: string | null) {
   if (!v) return "—";
   const s = String(v);
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function getErrMsg(e: unknown, fallback: string) {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const anyErr = e as any;
+    if (typeof anyErr.message === "string") return anyErr.message;
+    if (typeof anyErr.error_description === "string")
+      return anyErr.error_description;
+    if (typeof anyErr.details === "string") return anyErr.details;
+    if (typeof anyErr.hint === "string") return anyErr.hint;
+  }
+  return fallback;
 }
 
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
 
-  const workoutId = useMemo(() => {
+  const sessionId = useMemo(() => {
     const raw = Array.isArray(id) ? id[0] : id;
     return (raw ?? "").toString();
   }, [id]);
 
   const [loading, setLoading] = useState(true);
+  const [completing, setCompleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [workout, setWorkout] = useState<WorkoutDetail | null>(null);
+  const [session, setSession] = useState<WorkoutSession | null>(null);
 
-  const fetchWorkout = useCallback(async () => {
-    if (!workoutId || !user?.id) {
-      if (!workoutId) setErr("Missing workout id.");
-      if (!user?.id) setErr("Not authenticated.");
+  const fetchSession = useCallback(async () => {
+    if (!sessionId || !user?.id) {
+      setErr(!sessionId ? "Missing session id." : "Not authenticated.");
       setLoading(false);
       return;
     }
@@ -68,49 +67,60 @@ export default function WorkoutDetailScreen() {
     setErr(null);
 
     try {
-      const data = await getWorkoutById(user.id, workoutId);
-      setWorkout({
-        id: data.id,
-        title: data.title ?? "Workout",
-        description: data.notes,
-        durationMinutes: data.duration_min ?? undefined,
-        difficulty: data.activity_type ?? undefined,
-        // exercises not implemented yet (no backing table in current schema)
-        exercises: [],
-      });
-    } catch (e: any) {
-      const msg = e?.message ?? "Failed to load workout";
-      setErr(String(msg));
+      // RLS should ensure user can only read their own session
+      const data = await getWorkoutSessionById(sessionId);
+      setSession(data);
+    } catch (e: unknown) {
+      setErr(getErrMsg(e, "Failed to load workout session"));
     } finally {
       setLoading(false);
     }
-  }, [workoutId, user?.id]);
+  }, [sessionId, user?.id]);
 
   useEffect(() => {
-    let mounted = true;
+    fetchSession();
+  }, [fetchSession]);
 
-    (async () => {
-      if (!mounted) return;
-      await fetchWorkout();
-    })();
+  const isCompleted = !!session?.ended_at;
 
-    return () => {
-      mounted = false;
-    };
-  }, [fetchWorkout]);
+  const onComplete = useCallback(() => {
+    if (!session?.id) return;
+    if (isCompleted) return;
 
-  const exercises = workout?.exercises ?? [];
-
-  const onComplete = () => {
     Alert.alert(
-      "Not available yet",
-      "Workout completion isn't implemented yet. This button will be enabled once the backend supports it."
+      "Mark complete?",
+      "This will end the current session and compute duration.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Complete",
+          style: "default",
+          onPress: async () => {
+            setCompleting(true);
+            setErr(null);
+            try {
+              await completeWorkoutSession({ sessionId: session.id });
+              await fetchSession();
+              Alert.alert("Completed", "Workout session marked complete.");
+            } catch (e: unknown) {
+              setErr(getErrMsg(e, "Failed to complete workout session"));
+            } finally {
+              setCompleting(false);
+            }
+          },
+        },
+      ]
     );
-  };
+  }, [session?.id, isCompleted, fetchSession, session]);
 
   const onRetry = async () => {
-    await fetchWorkout();
+    await fetchSession();
   };
+
+  const title = session?.title?.trim() ? session.title : "Workout";
+  const sub =
+    `${formatActivityType(session?.activity_type)}` +
+    (typeof session?.duration_min === "number" ? ` • ${session.duration_min} min` : "");
 
   return (
     <Screen>
@@ -118,26 +128,19 @@ export default function WorkoutDetailScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.kicker}>Workout</Text>
           <Text style={styles.title} numberOfLines={2}>
-            {loading ? "Loading..." : workout?.title ?? "Workout"}
+            {loading ? "Loading..." : title}
           </Text>
-          <Text style={styles.sub}>
-            {workout?.difficulty ? formatDifficulty(workout.difficulty) : "—"}
-            {typeof workout?.durationMinutes === "number"
-              ? ` • ${workout.durationMinutes} min`
-              : ""}
-          </Text>
+          <Text style={styles.sub}>{sub}</Text>
         </View>
 
-        {/* States */}
         {loading ? (
           <Card>
             <View style={styles.center}>
               <ActivityIndicator />
-              <Text style={styles.meta}>Loading workout…</Text>
+              <Text style={styles.meta}>Loading session…</Text>
             </View>
           </Card>
         ) : err ? (
@@ -149,59 +152,45 @@ export default function WorkoutDetailScreen() {
             <View style={{ height: 12 }} />
             <PrimaryButton label="Back" onPress={() => router.back()} />
           </Card>
-        ) : workout ? (
+        ) : session ? (
           <>
-            {/* Overview */}
             <Card style={{ marginBottom: theme.spacing.md }}>
-              <Text style={styles.section}>Overview</Text>
+              <Text style={styles.section}>Status</Text>
               <Text style={styles.body}>
-                {workout.description?.trim()
-                  ? workout.description
-                  : "No description provided."}
+                {session.ended_at ? "Completed" : "Active"}
               </Text>
+
+              <Text style={styles.meta}>
+                Started:{" "}
+                {session.started_at
+                  ? new Date(session.started_at).toLocaleString()
+                  : "—"}
+              </Text>
+
+              <Text style={styles.meta}>
+                Ended:{" "}
+                {session.ended_at ? new Date(session.ended_at).toLocaleString() : "—"}
+              </Text>
+
+              {session.plan_id ? (
+                <Text style={styles.meta}>Linked plan: {session.plan_id}</Text>
+              ) : null}
             </Card>
 
-            {/* Exercises */}
             <Card>
-              <Text style={styles.section}>Exercises</Text>
-
-              {exercises.length === 0 ? (
-                <Text style={styles.meta}>
-                  No exercises listed for this workout.
-                </Text>
-              ) : (
-                <View style={{ marginTop: 10, gap: 10 }}>
-                  {exercises.map((ex, idx) => (
-                    <View key={`${ex.id ?? idx}`} style={styles.exerciseRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.exerciseName}>{ex.name}</Text>
-
-                        <Text style={styles.meta}>
-                          {typeof ex.sets === "number"
-                            ? `${ex.sets} sets`
-                            : "— sets"}
-                          {typeof ex.reps === "number"
-                            ? ` • ${ex.reps} reps`
-                            : ""}
-                          {typeof ex.durationSeconds === "number"
-                            ? ` • ${ex.durationSeconds}s`
-                            : ""}
-                        </Text>
-
-                        {ex.notes ? (
-                          <Text style={styles.notes}>{ex.notes}</Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
+              <Text style={styles.section}>Actions</Text>
 
               <View style={{ marginTop: theme.spacing.lg }}>
                 <PrimaryButton
-                  label="Mark Complete"
+                  label={
+                    completing
+                      ? "Completing…"
+                      : session.ended_at
+                      ? "Completed"
+                      : "Mark Complete"
+                  }
                   onPress={onComplete}
-                  disabled
+                  disabled={completing || !!session.ended_at}
                 />
                 <View style={{ height: 12 }} />
                 <PrimaryButton label="Back" onPress={() => router.back()} />
@@ -210,7 +199,7 @@ export default function WorkoutDetailScreen() {
           </>
         ) : (
           <Card>
-            <Text style={styles.meta}>Workout not found.</Text>
+            <Text style={styles.meta}>Session not found.</Text>
             <View style={{ marginTop: theme.spacing.md }}>
               <PrimaryButton label="Back" onPress={() => router.back()} />
             </View>
@@ -264,23 +253,4 @@ const styles = StyleSheet.create({
   },
 
   errorText: { color: "#ff6b6b", fontWeight: "800" },
-
-  exerciseRow: {
-    padding: 12,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
-  },
-  exerciseName: {
-    color: theme.colors.text,
-    fontSize: theme.font.size.md,
-    fontWeight: "900",
-  },
-  notes: {
-    marginTop: 6,
-    color: theme.colors.textMuted,
-    fontSize: theme.font.size.sm,
-    fontWeight: "700",
-  },
 });

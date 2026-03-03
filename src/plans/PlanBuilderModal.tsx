@@ -45,6 +45,10 @@ function makeInitialTime(existingTime?: string | null) {
   return d;
 }
 
+function onlyDigitsOrEmpty(s: string) {
+  return s === "" || /^[0-9]+$/.test(s);
+}
+
 export function PlanBuilderModal({
   visible,
   onClose,
@@ -57,28 +61,81 @@ export function PlanBuilderModal({
 
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+
   const [timeEnabled, setTimeEnabled] = useState(false);
   const [time, setTime] = useState<Date>(() => makeInitialTime(null));
+
+  // NEW: Phase 1 inputs
+  const [durationMin, setDurationMin] = useState<string>(""); // store as string for input UX
+  const [rpe, setRpe] = useState<string>(""); // store as string for input UX
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // CRITICAL FIX: rehydrate local state when opening / switching day
+  // Rehydrate local state when opening / switching day
   useEffect(() => {
     if (!visible) return;
 
     setTitle(existing?.title ?? "");
     setNotes(existing?.notes ?? "");
+
     setTimeEnabled(!!existing?.scheduled_time);
     setTime(makeInitialTime(existing?.scheduled_time ?? null));
+
+    setDurationMin(
+      typeof existing?.planned_duration_min === "number"
+        ? String(existing.planned_duration_min)
+        : ""
+    );
+    setRpe(typeof existing?.planned_rpe === "number" ? String(existing.planned_rpe) : "");
+
     setError(null);
     setSaving(false);
-  }, [visible, planDate, existing?.id, existing?.updated_at, existing?.scheduled_time, existing?.title, existing?.notes]);
+  }, [
+    visible,
+    planDate,
+    existing?.id,
+    existing?.updated_at,
+    existing?.scheduled_time,
+    existing?.title,
+    existing?.notes,
+    existing?.planned_duration_min,
+    existing?.planned_rpe,
+  ]);
+
+  const parsedDuration = useMemo(() => {
+    if (durationMin.trim() === "") return null;
+    const n = Number(durationMin);
+    if (!Number.isFinite(n)) return NaN;
+    return Math.round(n);
+  }, [durationMin]);
+
+  const parsedRpe = useMemo(() => {
+    if (rpe.trim() === "") return null;
+    const n = Number(rpe);
+    if (!Number.isFinite(n)) return NaN;
+    return Math.round(n);
+  }, [rpe]);
 
   const canSave = useMemo(() => {
     const t = title.trim();
-    return t.length > 0 && t.length <= 60 && notes.length <= 1000;
-  }, [title, notes]);
+    if (t.length === 0 || t.length > 60) return false;
+    if (notes.length > 1000) return false;
+
+    // duration: empty ok; otherwise >=0 integer
+    if (parsedDuration !== null) {
+      if (!Number.isFinite(parsedDuration)) return false;
+      if (parsedDuration < 0) return false;
+    }
+
+    // rpe: empty ok; otherwise 1..10 integer
+    if (parsedRpe !== null) {
+      if (!Number.isFinite(parsedRpe)) return false;
+      if (parsedRpe < 1 || parsedRpe > 10) return false;
+    }
+
+    return true;
+  }, [title, notes, parsedDuration, parsedRpe]);
 
   const onSave = async () => {
     if (!userId) return;
@@ -98,6 +155,28 @@ export function PlanBuilderModal({
       return;
     }
 
+    if (parsedDuration !== null) {
+      if (!Number.isFinite(parsedDuration)) {
+        setError("Planned duration must be a number.");
+        return;
+      }
+      if (parsedDuration < 0) {
+        setError("Planned duration must be 0 or more.");
+        return;
+      }
+    }
+
+    if (parsedRpe !== null) {
+      if (!Number.isFinite(parsedRpe)) {
+        setError("Planned RPE must be a number.");
+        return;
+      }
+      if (parsedRpe < 1 || parsedRpe > 10) {
+        setError("Planned RPE must be between 1 and 10.");
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const planned = await upsertPlan({
@@ -107,10 +186,14 @@ export function PlanBuilderModal({
         notes: notes.trim() ? notes.trim() : null,
         scheduledTime: timeEnabled ? toTimeString(time) : null,
         templateId: null,
+
+        // NEW: only pass when user provided value
+        plannedDurationMin: parsedDuration === null ? undefined : parsedDuration,
+        plannedRpe: parsedRpe === null ? undefined : parsedRpe,
       });
 
       onSaved(planned);
-      onClose(); // close on success
+      onClose();
     } catch (e: unknown) {
       setError(getErrMsg(e, "Failed to save."));
     } finally {
@@ -142,6 +225,41 @@ export function PlanBuilderModal({
             placeholderTextColor="#666"
             style={styles.input}
           />
+
+          {/* NEW: Duration + RPE */}
+          <View style={styles.inlineRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Planned duration (min)</Text>
+              <TextInput
+                value={durationMin}
+                onChangeText={(v) => {
+                  if (!onlyDigitsOrEmpty(v)) return;
+                  setDurationMin(v);
+                }}
+                placeholder="e.g., 45"
+                placeholderTextColor="#666"
+                keyboardType="number-pad"
+                style={styles.input}
+              />
+            </View>
+
+            <View style={{ width: 12 }} />
+
+            <View style={{ width: 110 }}>
+              <Text style={styles.label}>Planned RPE</Text>
+              <TextInput
+                value={rpe}
+                onChangeText={(v) => {
+                  if (!onlyDigitsOrEmpty(v)) return;
+                  setRpe(v);
+                }}
+                placeholder="1–10"
+                placeholderTextColor="#666"
+                keyboardType="number-pad"
+                style={styles.input}
+              />
+            </View>
+          </View>
 
           <View style={styles.timeRow}>
             <Pressable
@@ -253,6 +371,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#1b1b1b",
     color: "#fff",
   },
+
+  inlineRow: { flexDirection: "row", alignItems: "flex-start" },
 
   timeRow: { flexDirection: "row", alignItems: "center", marginTop: 12 },
   timeToggle: {

@@ -1,7 +1,10 @@
 // src/plans/PlanDayDrawer.tsx
+import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, Text, View, StyleSheet } from "react-native";
+
 import { useSession } from "../session/SessionContext";
+
 import {
   deletePlanByDate,
   getPlanForDate,
@@ -10,6 +13,12 @@ import {
   PlannedWorkout,
   resetPlanToPlannedByDate,
 } from "../lib/plans";
+
+import {
+  getActiveWorkoutSession,
+  startWorkoutSession,
+} from "../lib/workouts";
+
 import { PlanBuilderModal } from "./PlanBuilderModal";
 
 type Props = {
@@ -23,7 +32,8 @@ function getErrMsg(e: unknown, fallback: string) {
   if (e && typeof e === "object") {
     const anyErr = e as any;
     if (typeof anyErr.message === "string") return anyErr.message;
-    if (typeof anyErr.error_description === "string") return anyErr.error_description;
+    if (typeof anyErr.error_description === "string")
+      return anyErr.error_description;
     if (typeof anyErr.details === "string") return anyErr.details;
     if (typeof anyErr.hint === "string") return anyErr.hint;
   }
@@ -43,6 +53,8 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
   const userId = user?.id;
 
   const [loading, setLoading] = useState(false);
+  const [starting, setStarting] = useState(false);
+
   const [err, setErr] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlannedWorkout | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -113,6 +125,42 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
     }
   };
 
+  // ✅ Start workout from THIS plan (sets workout_sessions.plan_id = planned_workouts.id)
+  const onStartWorkout = async () => {
+    if (!userId) {
+      setErr("No user session found. Please log in again.");
+      return;
+    }
+    if (!plan?.id) return;
+
+    setStarting(true);
+    setErr(null);
+
+    try {
+      const active = await getActiveWorkoutSession(userId);
+      if (active?.id) {
+        onClose();
+        router.push({ pathname: "/workout/[id]", params: { id: active.id } });
+        return;
+      }
+
+      const created = await startWorkoutSession({
+        userId,
+        planId: plan.id, // ✅ critical: links session → plan
+        title: plan.title ?? "Workout",
+        activityType: plan.activity_type ?? "lifting",
+      });
+
+      onClose();
+      router.push({ pathname: "/workout/[id]", params: { id: created.id } });
+    } catch (e: unknown) {
+      console.log("PlanDayDrawer onStartWorkout error:", e);
+      setErr(getErrMsg(e, "Failed to start workout"));
+    } finally {
+      setStarting(false);
+    }
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.root}>
@@ -140,7 +188,10 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
             <>
               <Text style={styles.mutedText}>No plan for this day.</Text>
 
-              <Pressable onPress={() => setBuilderOpen(true)} style={styles.primaryBtn}>
+              <Pressable
+                onPress={() => setBuilderOpen(true)}
+                style={styles.primaryBtn}
+              >
                 <Text style={styles.primaryBtnText}>Plan workout</Text>
               </Pressable>
             </>
@@ -149,7 +200,9 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
               <View style={styles.planCard}>
                 <Text style={styles.planTitle}>{title}</Text>
 
-                <Text style={styles.planMeta}>Status: {statusLabel(plan.status)}</Text>
+                <Text style={styles.planMeta}>
+                  Status: {statusLabel(plan.status)}
+                </Text>
 
                 <Text style={styles.planMeta}>
                   Planned:{" "}
@@ -157,11 +210,15 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
                     ? `${plan.planned_duration_min} min`
                     : "—"}
                   {" • "}
-                  {typeof plan.planned_rpe === "number" ? `RPE ${plan.planned_rpe}` : "RPE —"}
+                  {typeof plan.planned_rpe === "number"
+                    ? `RPE ${plan.planned_rpe}`
+                    : "RPE —"}
                 </Text>
 
                 {!!plan.scheduled_time && (
-                  <Text style={styles.planMeta}>Time: {plan.scheduled_time.slice(0, 5)}</Text>
+                  <Text style={styles.planMeta}>
+                    Time: {plan.scheduled_time.slice(0, 5)}
+                  </Text>
                 )}
 
                 {!!plan.notes && (
@@ -169,6 +226,22 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
                     Notes: {plan.notes}
                   </Text>
                 )}
+              </View>
+
+              {/* ✅ Start workout from plan */}
+              <View style={styles.row}>
+                <Pressable
+                  onPress={onStartWorkout}
+                  disabled={starting}
+                  style={[
+                    styles.primaryBtn,
+                    { flex: 1, marginTop: 0, opacity: starting ? 0.7 : 1 },
+                  ]}
+                >
+                  <Text style={styles.primaryBtnText}>
+                    {starting ? "Starting…" : "Start Workout"}
+                  </Text>
+                </Pressable>
               </View>
 
               {/* Status quick actions */}

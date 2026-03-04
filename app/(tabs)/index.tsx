@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
-import { router } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -81,14 +81,10 @@ function startOfMonthLocal(d: Date) {
   return x;
 }
 
-function endOfMonthLocal(d: Date) {
-  // last day of month (local)
-  const x = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function computeDashboardMetrics(sessions: WorkoutSession[], weeklyGoalMin: number) {
+function computeDashboardMetrics(
+  sessions: WorkoutSession[],
+  weeklyGoalMin: number
+) {
   const now = new Date();
   const weekStart = startOfWeekLocal(now);
   const weekStartMs = weekStart.getTime();
@@ -211,7 +207,10 @@ export default function HomeScreen() {
   const progress = Math.min(1, metrics.minutesThisWeek / metrics.weeklyGoalMin);
   const pct = Math.round(progress * 100);
 
-  const fetchDashboardData = async () => {
+  // Exclusive end range:
+  // start = first day of current month (inclusive)
+  // end   = first day of next month (exclusive)
+  const fetchDashboardData = useCallback(async () => {
     if (sessionLoading) return;
 
     if (!userId) {
@@ -225,12 +224,15 @@ export default function HomeScreen() {
 
     try {
       const now = new Date();
+
       const monthStart = ymdLocal(startOfMonthLocal(now));
-      const monthEnd = ymdLocal(endOfMonthLocal(now));
+      const nextMonthStart = ymdLocal(
+        startOfMonthLocal(new Date(now.getFullYear(), now.getMonth() + 1, 1))
+      );
 
       const [sessionList, planList] = await Promise.all([
         listWorkoutSessions(userId),
-        listPlansForRange(userId, monthStart, monthEnd),
+        listPlansForRange(userId, monthStart, nextMonthStart),
       ]);
 
       setSessions(sessionList || []);
@@ -241,7 +243,16 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [sessionLoading, userId]);
+
+  // Refresh any time this tab/screen gains focus (returning from workout, plan edits, etc.)
+  useFocusEffect(
+    useCallback(() => {
+      if (!sessionLoading && userId) {
+        fetchDashboardData();
+      }
+    }, [sessionLoading, userId, fetchDashboardData])
+  );
 
   // Supports:
   // - Start workout normally
@@ -286,11 +297,6 @@ export default function HomeScreen() {
     setSelectedPlanDate(dayKey);
     setPlanDrawerOpen(true);
   };
-
-  useEffect(() => {
-    if (!sessionLoading && userId) fetchDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionLoading, userId]);
 
   const today = useMemo(() => pickTodaySession(sessions), [sessions]);
 

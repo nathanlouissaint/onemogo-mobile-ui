@@ -194,20 +194,28 @@ export async function deletePlanByDate(userId: string, planDate: string) {
   if (error) throw error;
 }
 
+/**
+ * List plans in a date range.
+ *
+ * IMPORTANT: endDateExclusive is EXCLUSIVE (use .lt).
+ * Example for month view:
+ *   start = 2026-03-01
+ *   endExclusive = 2026-04-01
+ */
 export async function listPlansForRange(
   userId: string,
   startDate: string,
-  endDate: string
+  endDateExclusive: string
 ) {
   const startKey = normalizePlanDate(startDate);
-  const endKey = normalizePlanDate(endDate);
+  const endKey = normalizePlanDate(endDateExclusive);
 
   const { data, error } = await supabase
     .from("planned_workouts")
     .select(PLAN_SELECT)
     .eq("user_id", userId)
     .gte("plan_date", startKey)
-    .lte("plan_date", endKey)
+    .lt("plan_date", endKey) // ✅ exclusive end
     .order("plan_date", { ascending: true });
 
   if (error) throw error;
@@ -215,9 +223,12 @@ export async function listPlansForRange(
 }
 
 export async function listPlansForMonth(userId: string, monthCursor: Date) {
+  // Exclusive end month range
   const start = toISODate(startOfMonthLocal(monthCursor));
-  const end = toISODate(endOfMonthLocal(monthCursor));
-  return listPlansForRange(userId, start, end);
+  const endExclusive = toISODate(
+    startOfMonthLocal(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1))
+  );
+  return listPlansForRange(userId, start, endExclusive);
 }
 
 // ---------- status helpers ----------

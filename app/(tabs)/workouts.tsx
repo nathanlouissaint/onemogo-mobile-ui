@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -130,104 +131,122 @@ export default function WorkoutsScreen() {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.sub}>Choose an activity, then start</Text>
-      </View>
-
-      {/* Activity chooser */}
-      <Card style={{ marginBottom: theme.spacing.md }}>
-        <Text style={styles.section}>Workout Type</Text>
-
-        <View style={styles.choices}>
-          {ACTIVITY_OPTIONS.map((opt) => {
-            const active = opt.key === selectedActivity;
-            return (
-              <Pressable
-                key={opt.key}
-                onPress={() => setSelectedActivity(opt.key)}
-                style={({ pressed }) => [
-                  styles.choice,
-                  active && styles.choiceActive,
-                  pressed && { opacity: 0.9 },
-                ]}
-              >
-                <Text style={[styles.choiceText, active && styles.choiceTextActive]}>
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.sub}>Choose an activity, then start</Text>
         </View>
 
-        <View style={{ marginTop: theme.spacing.md }}>
-          <PrimaryButton
-            label="Start Workout"
-            onPress={onStartWorkout}
-            loading={loading}
-          />
-        </View>
+        {/* Activity chooser */}
+        <Card style={{ marginBottom: theme.spacing.md }}>
+          <Text style={styles.section}>Workout Type</Text>
 
-        {err ? <Text style={styles.errorText}>{err}</Text> : null}
-      </Card>
-
-      {/* Sessions list */}
-      {loading ? (
-        <Card>
-          <View style={styles.center}>
-            <ActivityIndicator />
-            <Text style={styles.meta}>
-              {sessionLoading ? "Loading session…" : "Loading workouts…"}
-            </Text>
+          <View style={styles.choices}>
+            {ACTIVITY_OPTIONS.map((opt) => {
+              const active = opt.key === selectedActivity;
+              return (
+                <Pressable
+                  key={opt.key}
+                  onPress={() => setSelectedActivity(opt.key)}
+                  style={({ pressed }) => [
+                    styles.choice,
+                    active && styles.choiceActive,
+                    pressed && { opacity: 0.9 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.choiceText,
+                      active && styles.choiceTextActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-        </Card>
-      ) : !hasSessions ? (
-        <Card>
-          <Text style={styles.meta}>No workouts yet.</Text>
-          <Text style={[styles.meta, { marginTop: 6 }]}>
-            Start a session and it will appear here.
-          </Text>
+
           <View style={{ marginTop: theme.spacing.md }}>
+            <PrimaryButton
+              label="Start Workout"
+              onPress={onStartWorkout}
+              loading={loading}
+            />
+          </View>
+
+          {err ? <Text style={styles.errorText}>{err}</Text> : null}
+        </Card>
+
+        {/* Sessions list */}
+        {loading ? (
+          <Card>
+            <View style={styles.center}>
+              <ActivityIndicator />
+              <Text style={styles.meta}>
+                {sessionLoading ? "Loading session…" : "Loading workouts…"}
+              </Text>
+            </View>
+          </Card>
+        ) : !hasSessions ? (
+          <Card>
+            <Text style={styles.meta}>No workouts yet.</Text>
+            <Text style={[styles.meta, { marginTop: 6 }]}>
+              Start a session and it will appear here.
+            </Text>
+            <View style={{ marginTop: theme.spacing.md }}>
+              <PrimaryButton label="Refresh" onPress={load} />
+            </View>
+          </Card>
+        ) : (
+          <View style={{ gap: 12 }}>
+            {sessions.map((s) => {
+              const started = s.started_at ?? s.created_at ?? null;
+
+              return (
+                <Pressable
+                  key={s.id}
+                  onPress={() =>
+                    router.push(`/workout/${encodeURIComponent(s.id)}`)
+                  }
+                  style={({ pressed }) => [pressed && { opacity: 0.9 }]}
+                >
+                  <Card>
+                    <Text style={styles.rowTitle}>
+                      {s.title ?? "Workout Session"}
+                    </Text>
+
+                    <Text style={styles.meta}>
+                      {s.activity_type}
+                      {started ? ` • ${formatDate(started)}` : ""}
+                      {s.ended_at
+                        ? ` • ended ${formatDate(s.ended_at)}`
+                        : " • active"}
+                    </Text>
+
+                    {typeof s.duration_min === "number" ? (
+                      <Text style={styles.meta}>{s.duration_min} min</Text>
+                    ) : null}
+                  </Card>
+                </Pressable>
+              );
+            })}
+
+            <View style={{ height: 4 }} />
             <PrimaryButton label="Refresh" onPress={load} />
           </View>
-        </Card>
-      ) : (
-        <View style={{ gap: 12 }}>
-          {sessions.map((s) => {
-            const started = s.started_at ?? s.created_at ?? null;
-
-            return (
-              <Pressable
-                key={s.id}
-                onPress={() => router.push(`/workout/${encodeURIComponent(s.id)}`)}
-                style={({ pressed }) => [pressed && { opacity: 0.9 }]}
-              >
-                <Card>
-                  <Text style={styles.rowTitle}>{s.title ?? "Workout Session"}</Text>
-
-                  <Text style={styles.meta}>
-                    {s.activity_type}
-                    {started ? ` • ${formatDate(started)}` : ""}
-                    {s.ended_at ? ` • ended ${formatDate(s.ended_at)}` : " • active"}
-                  </Text>
-
-                  {typeof s.duration_min === "number" ? (
-                    <Text style={styles.meta}>{s.duration_min} min</Text>
-                  ) : null}
-                </Card>
-              </Pressable>
-            );
-          })}
-
-          <View style={{ height: 4 }} />
-          <PrimaryButton label="Refresh" onPress={load} />
-        </View>
-      )}
+        )}
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: { paddingBottom: 28 },
+
   header: { marginBottom: theme.spacing.lg },
   title: { color: theme.colors.text, fontSize: 24, fontWeight: "900" },
   sub: { color: theme.colors.textMuted, marginTop: 6, fontWeight: "700" },

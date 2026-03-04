@@ -1,6 +1,6 @@
 // app/workout/[id].tsx
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -42,6 +42,24 @@ function getErrMsg(e: unknown, fallback: string) {
   return fallback;
 }
 
+function safeDate(v?: string | null) {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function formatElapsed(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
+}
+
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
@@ -55,6 +73,10 @@ export default function WorkoutDetailScreen() {
   const [completing, setCompleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [session, setSession] = useState<WorkoutSession | null>(null);
+
+  // ✅ Timer state
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchSession = useCallback(async () => {
     if (!sessionId || !user?.id) {
@@ -81,7 +103,38 @@ export default function WorkoutDetailScreen() {
     fetchSession();
   }, [fetchSession]);
 
-  const isCompleted = !!session?.ended_at;
+  const startedAt = useMemo(() => safeDate(session?.started_at), [session?.started_at]);
+  const endedAt = useMemo(() => safeDate(session?.ended_at), [session?.ended_at]);
+  const isCompleted = !!endedAt;
+
+  // ✅ Start/stop timer: ticks only while active and we have started_at
+  useEffect(() => {
+    if (!startedAt || isCompleted) {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+      return;
+    }
+
+    if (!tickRef.current) {
+      tickRef.current = setInterval(() => setNowMs(Date.now()), 1000);
+    }
+
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+    };
+  }, [startedAt, isCompleted]);
+
+  const elapsedMs = useMemo(() => {
+    if (!startedAt) return 0;
+    const end = endedAt ? endedAt.getTime() : nowMs;
+    return Math.max(0, end - startedAt.getTime());
+  }, [startedAt, endedAt, nowMs]);
+
+  const elapsedLabel = useMemo(() => {
+    if (!startedAt) return "—";
+    return formatElapsed(elapsedMs);
+  }, [startedAt, elapsedMs]);
 
   const onComplete = useCallback(() => {
     if (!session?.id) return;
@@ -118,9 +171,14 @@ export default function WorkoutDetailScreen() {
   };
 
   const title = session?.title?.trim() ? session.title : "Workout";
-  const sub =
-    `${formatActivityType(session?.activity_type)}` +
-    (typeof session?.duration_min === "number" ? ` • ${session.duration_min} min` : "");
+
+  // Keep DB duration display, but add live timer (authoritative during active)
+  const durationDb =
+    typeof session?.duration_min === "number" ? `${session.duration_min} min` : null;
+
+  const sub = `${formatActivityType(session?.activity_type)} • ${
+    isCompleted ? (durationDb ?? elapsedLabel) : elapsedLabel
+  }`;
 
   return (
     <Screen>
@@ -156,9 +214,15 @@ export default function WorkoutDetailScreen() {
           <>
             <Card style={{ marginBottom: theme.spacing.md }}>
               <Text style={styles.section}>Status</Text>
-              <Text style={styles.body}>
-                {session.ended_at ? "Completed" : "Active"}
-              </Text>
+              <Text style={styles.body}>{session.ended_at ? "Completed" : "Active"}</Text>
+
+              {/* ✅ Big timer block */}
+              <View style={styles.timerWrap}>
+                <Text style={styles.timerLabel}>
+                  {session.ended_at ? "Total time" : "Elapsed"}
+                </Text>
+                <Text style={styles.timerValue}>{elapsedLabel}</Text>
+              </View>
 
               <Text style={styles.meta}>
                 Started:{" "}
@@ -243,6 +307,28 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: theme.font.size.md,
     fontWeight: "700",
+  },
+
+  // ✅ timer styles
+  timerWrap: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  timerLabel: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
+  timerValue: {
+    marginTop: 8,
+    color: theme.colors.text,
+    fontSize: theme.font.size.xxl,
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
 
   meta: {

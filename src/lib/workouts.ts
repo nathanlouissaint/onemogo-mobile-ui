@@ -1,294 +1,326 @@
 // src/lib/workouts.ts
+import { getPlanById, markPlanCompletedByDate } from "./plans";
 import { supabase } from "./supabase";
-import { getPlanById } from "./plans";
-import { listTemplateItems } from "./templates";
 
 export type WorkoutSession = {
   id: string;
   user_id: string;
-
   title: string | null;
-  activity_type: string;
-
-  started_at: string;
+  activity_type: string; // NOT NULL in DB
+  plan_id: string | null;
+  template_id: string | null;
+  started_at: string | null;
   ended_at: string | null;
   duration_min: number | null;
-
-  // links an executed session back to a planned workout
-  plan_id: string | null;
-
   created_at: string;
-  updated_at: string;
 };
 
 export type WorkoutSessionItem = {
   id: string;
   session_id: string;
-  template_item_id: string | null;
-
   exercise_id: string;
   sort_order: number;
-
   prescribed_sets: number | null;
   prescribed_reps: number | null;
   prescribed_rpe: number | null;
+  prescribed_weight_kg: number | null;
+  notes: string | null;
+  is_completed: boolean;
+  created_at: string;
+};
 
+export type WorkoutSessionSet = {
+  id: string;
+  session_id: string;
+  session_item_id: string;
+  set_index: number;
+  set_type: string;
+  reps: number | null;
+  weight_kg: number | null;
+  duration_sec: number | null;
+  distance_m: number | null;
+  rpe: number | null;
+  completed_at: string;
   notes: string | null;
   created_at: string;
 };
 
-function supabaseErrorToError(e: any, fallback: string) {
-  const msg =
-    e?.message ||
-    e?.error_description ||
-    e?.details ||
-    e?.hint ||
-    (typeof e === "string" ? e : null) ||
-    fallback;
+export type WorkoutSessionDetailItem = WorkoutSessionItem & {
+  exercise_name: string;
+  sets: WorkoutSessionSet[];
+};
 
-  const code = e?.code ? ` (${e.code})` : "";
-  const out = new Error(String(msg) + code);
-  (out as any).raw = e;
-  return out;
+export type WorkoutSessionDetail = {
+  session: WorkoutSession;
+  items: WorkoutSessionDetailItem[];
+};
+
+type WorkoutSessionItemRow = WorkoutSessionItem & {
+  exercises?: { name?: string | null } | Array<{ name?: string | null }> | null;
+};
+
+type ExerciseJoinValue =
+  | { name?: string | null }
+  | Array<{ name?: string | null }>
+  | null
+  | undefined;
+
+const WORKOUT_SESSION_SELECT =
+  "id,user_id,title,activity_type,plan_id,template_id,started_at,ended_at,duration_min,created_at";
+
+const WORKOUT_SESSION_ITEM_SELECT = `
+  id,
+  session_id,
+  exercise_id,
+  sort_order,
+  prescribed_sets,
+  prescribed_reps,
+  prescribed_rpe,
+  prescribed_weight_kg,
+  notes,
+  is_completed,
+  created_at,
+  exercises (
+    name
+  )
+`;
+
+const WORKOUT_SESSION_SET_SELECT = `
+  id,
+  session_id,
+  session_item_id,
+  set_index,
+  set_type,
+  reps,
+  weight_kg,
+  duration_sec,
+  distance_m,
+  rpe,
+  completed_at,
+  notes,
+  created_at
+`;
+
+function normalizeActivityType(v?: string | null) {
+  const s = (v ?? "").toLowerCase().trim();
+
+  // Hard default to prevent NOT NULL constraint failure
+  if (!s) return "strength";
+
+  // Normalize UI aliases
+  if (s === "lifting") return "strength";
+  if (s === "run" || s === "running") return "cardio";
+
+  return s;
 }
 
-const SESSION_SELECT =
-  "id,user_id,title,activity_type,started_at,ended_at,duration_min,plan_id,created_at,updated_at";
+function requireId(id: string, label: string) {
+  const v = (id ?? "").toString().trim();
+  if (!v) throw new Error(`Missing ${label}.`);
+  return v;
+}
 
-const SESSION_ITEM_SELECT =
-  "id,session_id,template_item_id,exercise_id,sort_order,prescribed_sets,prescribed_reps,prescribed_rpe,notes,created_at";
+function getExerciseNameFromJoin(value: ExerciseJoinValue) {
+  if (!value) return "Unknown Exercise";
 
-/**
- * List sessions for a user (newest first)
- */
-export async function listWorkoutSessions(
-  userId: string
-): Promise<WorkoutSession[]> {
+  if (Array.isArray(value)) {
+    const first = value[0];
+    const name = first?.name?.toString().trim();
+    return name || "Unknown Exercise";
+  }
+
+  const name = value.name?.toString().trim();
+  return name || "Unknown Exercise";
+}
+
+export async function listWorkoutSessions(userId: string) {
+  const uid = requireId(userId, "userId");
+
   const { data, error } = await supabase
     .from("workout_sessions")
-    .select(SESSION_SELECT)
-    .eq("user_id", userId)
+    .select(WORKOUT_SESSION_SELECT)
+    .eq("user_id", uid)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.log(
-      "listWorkoutSessions supabase error:",
-      JSON.stringify(error, null, 2)
-    );
-    throw supabaseErrorToError(error, "Failed to load workout sessions");
-  }
+  if (error) throw error;
 
   return (data ?? []) as WorkoutSession[];
 }
 
-/**
- * Start a new session (ended_at null)
- */
-export async function startWorkoutSession(params: {
-  userId: string;
-  title?: string | null;
-  activityType?: string | null;
-  startedAt?: string; // ISO string
-  planId?: string | null; // start from a plan
-}): Promise<WorkoutSession> {
-  const payload: any = {
-    user_id: params.userId,
-    title: params.title ?? "Workout",
-    activity_type: params.activityType ?? "strength",
-    plan_id: params.planId ?? null,
-  };
-  if (params.startedAt) payload.started_at = params.startedAt;
+export async function getActiveWorkoutSession(userId: string) {
+  const uid = requireId(userId, "userId");
 
   const { data, error } = await supabase
     .from("workout_sessions")
-    .insert(payload)
-    .select(SESSION_SELECT)
-    .single();
-
-  if (error) {
-    console.log(
-      "startWorkoutSession supabase error:",
-      JSON.stringify(error, null, 2)
-    );
-    throw supabaseErrorToError(error, "Failed to start workout session");
-  }
-
-  return data as WorkoutSession;
-}
-
-/**
- * Get a single session by id
- */
-export async function getWorkoutSessionById(
-  sessionId: string
-): Promise<WorkoutSession> {
-  const { data, error } = await supabase
-    .from("workout_sessions")
-    .select(SESSION_SELECT)
-    .eq("id", sessionId)
-    .single();
-
-  if (error) {
-    console.log(
-      "getWorkoutSessionById supabase error:",
-      JSON.stringify(error, null, 2)
-    );
-    throw supabaseErrorToError(error, "Failed to load workout session");
-  }
-
-  return data as WorkoutSession;
-}
-
-/**
- * Preferred alias for screens that import getWorkoutSession
- */
-export const getWorkoutSession = getWorkoutSessionById;
-
-/**
- * Complete a session:
- * - sets ended_at
- * - computes duration_min server-side
- *
- * Supports BOTH call styles:
- *   completeWorkoutSession("uuid")
- *   completeWorkoutSession({ sessionId: "uuid", endedAt?: "iso" })
- */
-export async function completeWorkoutSession(
-  sessionIdOrParams:
-    | string
-    | {
-        sessionId: string;
-        endedAt?: string; // ISO string
-      }
-): Promise<WorkoutSession> {
-  const sessionId =
-    typeof sessionIdOrParams === "string"
-      ? sessionIdOrParams
-      : sessionIdOrParams.sessionId;
-
-  const endedAt =
-    typeof sessionIdOrParams === "string"
-      ? new Date().toISOString()
-      : sessionIdOrParams.endedAt ?? new Date().toISOString();
-
-  const { data, error } = await supabase.rpc("complete_workout_session", {
-    p_id: sessionId,
-    p_ended_at: endedAt,
-  });
-
-  if (error) {
-    console.log(
-      "completeWorkoutSession supabase error:",
-      JSON.stringify(error, null, 2)
-    );
-    throw supabaseErrorToError(error, "Failed to complete workout session");
-  }
-
-  // Some RPCs return an array; normalize to single row
-  const row = Array.isArray(data) ? data[0] : data;
-  return row as WorkoutSession;
-}
-
-/**
- * Active session = most recent session with ended_at null
- */
-export async function getActiveWorkoutSession(
-  userId: string
-): Promise<WorkoutSession | null> {
-  const { data, error } = await supabase
-    .from("workout_sessions")
-    .select(SESSION_SELECT)
-    .eq("user_id", userId)
+    .select(WORKOUT_SESSION_SELECT)
+    .eq("user_id", uid)
     .is("ended_at", null)
-    .order("started_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(1);
 
-  if (error) {
-    console.log(
-      "getActiveWorkoutSession supabase error:",
-      JSON.stringify(error, null, 2)
-    );
-    throw supabaseErrorToError(error, "Failed to load active workout session");
-  }
+  if (error) throw error;
 
   return (data?.[0] ?? null) as WorkoutSession | null;
 }
 
-/**
- * List session items (the actual workout content for the session)
- */
-export async function listWorkoutSessionItems(
-  sessionId: string
-): Promise<WorkoutSessionItem[]> {
+export async function getWorkoutSessionById(sessionId: string) {
+  const id = requireId(sessionId, "sessionId");
+
   const { data, error } = await supabase
-    .from("workout_session_items")
-    .select(SESSION_ITEM_SELECT)
-    .eq("session_id", sessionId)
-    .order("sort_order", { ascending: true });
+    .from("workout_sessions")
+    .select(WORKOUT_SESSION_SELECT)
+    .eq("id", id)
+    .single();
 
-  if (error) {
-    console.log(
-      "listWorkoutSessionItems supabase error:",
-      JSON.stringify(error, null, 2)
-    );
-    throw supabaseErrorToError(error, "Failed to load workout session items");
-  }
+  if (error) throw error;
 
-  return (data ?? []) as WorkoutSessionItem[];
+  return data as WorkoutSession;
 }
 
-/**
- * Seed session items from the plan's template.
- *
- * Hard requirements:
- * - planned_workouts.template_id must exist
- * - workout_template_items must exist for that template
- * - workout_session_items table must exist
- * - UNIQUE(session_id, template_item_id) must exist for idempotency
- */
-export async function seedWorkoutSessionFromPlan(params: {
-  sessionId: string;
-  planId: string;
-}): Promise<void> {
-  // 1) Load plan and find template_id
-  const plan = await getPlanById(params.planId);
-  const templateId = plan?.template_id ? String(plan.template_id) : null;
-  if (!templateId) return;
+export async function getWorkoutSessionDetail(
+  sessionId: string
+): Promise<WorkoutSessionDetail> {
+  const id = requireId(sessionId, "sessionId");
 
-  // 2) Load template items
-  const items = await listTemplateItems(templateId);
-  if (!items.length) return;
+  const session = await getWorkoutSessionById(id);
 
-  // 3) Upsert into workout_session_items (idempotent via unique index)
-  const payload = items.map((it) => ({
-    session_id: params.sessionId,
-    template_item_id: it.id,
-    exercise_id: it.exercise_id,
-    sort_order: typeof it.sort_order === "number" ? it.sort_order : 0,
-    prescribed_sets: it.prescribed_sets ?? null,
-    prescribed_reps: it.prescribed_reps ?? null,
-    prescribed_rpe: it.prescribed_rpe ?? null,
-    notes: it.notes ?? null,
-  }));
-
-  const { error } = await supabase
+  const { data: itemRows, error: itemErr } = await supabase
     .from("workout_session_items")
-    .upsert(payload, { onConflict: "session_id,template_item_id" });
+    .select(WORKOUT_SESSION_ITEM_SELECT)
+    .eq("session_id", id)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
 
-  if (error) {
-    console.log(
-      "seedWorkoutSessionFromPlan supabase error:",
-      JSON.stringify(error, null, 2)
-    );
-    throw supabaseErrorToError(error, "Failed to seed workout from plan");
+  if (itemErr) throw itemErr;
+
+  const itemsRaw = (itemRows ?? []) as WorkoutSessionItemRow[];
+  const itemIds = itemsRaw.map((item) => item.id);
+
+  let setsRaw: WorkoutSessionSet[] = [];
+
+  if (itemIds.length > 0) {
+    const { data: setRows, error: setErr } = await supabase
+      .from("workout_session_sets")
+      .select(WORKOUT_SESSION_SET_SELECT)
+      .eq("session_id", id)
+      .in("session_item_id", itemIds)
+      .order("session_item_id", { ascending: true })
+      .order("set_index", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (setErr) throw setErr;
+
+    setsRaw = (setRows ?? []) as WorkoutSessionSet[];
   }
+
+  const setsByItemId = new Map<string, WorkoutSessionSet[]>();
+
+  for (const set of setsRaw) {
+    const existing = setsByItemId.get(set.session_item_id) ?? [];
+    existing.push(set);
+    setsByItemId.set(set.session_item_id, existing);
+  }
+
+  const items: WorkoutSessionDetailItem[] = itemsRaw.map((item) => {
+    const { exercises, ...baseItem } = item;
+
+    return {
+      ...baseItem,
+      exercise_name: getExerciseNameFromJoin(exercises),
+      sets: setsByItemId.get(item.id) ?? [],
+    };
+  });
+
+  return {
+    session,
+    items,
+  };
 }
 
-/**
- * Temporary compatibility exports (optional).
- * Remove after you update all imports.
- */
-export const getWorkouts = listWorkoutSessions;
-export const startWorkout = startWorkoutSession;
-export const stopWorkout = completeWorkoutSession;
-export const getActiveWorkout = getActiveWorkoutSession;
+export async function startWorkoutSession(args: {
+  userId: string;
+  title: string;
+  activityType?: string | null;
+  planId?: string | null;
+  templateId?: string | null;
+}) {
+  const userId = requireId(args.userId, "userId");
+
+  const payload = {
+    user_id: userId,
+    title: args.title?.trim() || "Workout Session",
+    activity_type: normalizeActivityType(args.activityType), // NEVER NULL
+    plan_id: args.planId ?? null,
+    template_id: args.templateId ?? null,
+    started_at: new Date().toISOString(),
+    ended_at: null,
+    duration_min: null,
+  };
+
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .insert(payload)
+    .select(WORKOUT_SESSION_SELECT)
+    .single();
+
+  if (error) throw error;
+
+  return data as WorkoutSession;
+}
+
+export async function completeWorkoutSession(args: { sessionId: string }) {
+  const id = requireId(args.sessionId, "sessionId");
+
+  // Read current session state first so duration and linked-plan sync are correct.
+  const { data: existing, error: readErr } = await supabase
+    .from("workout_sessions")
+    .select("id,user_id,plan_id,started_at,ended_at")
+    .eq("id", id)
+    .single();
+
+  if (readErr) throw readErr;
+
+  // If already completed, return the current canonical row instead of mutating again.
+  if (existing?.ended_at) {
+    return getWorkoutSessionById(id);
+  }
+
+  const startedAt = existing?.started_at ? new Date(existing.started_at) : null;
+
+  const durationMin =
+    startedAt && !Number.isNaN(startedAt.getTime())
+      ? Math.max(0, Math.round((Date.now() - startedAt.getTime()) / 60000))
+      : null;
+
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .update({
+      ended_at: new Date().toISOString(),
+      duration_min: durationMin,
+    })
+    .eq("id", id)
+    .select(WORKOUT_SESSION_SELECT)
+    .single();
+
+  if (error) throw error;
+
+  const completed = data as WorkoutSession;
+
+  // Keep planned-workout adherence in sync when a session was started from a plan.
+  if (completed.plan_id) {
+    try {
+      const linkedPlan = await getPlanById(completed.plan_id);
+      await markPlanCompletedByDate(linkedPlan.user_id, linkedPlan.plan_date);
+    } catch (planSyncErr) {
+      console.warn("completeWorkoutSession plan sync warning:", planSyncErr);
+    }
+  }
+
+  return completed;
+}
+
+export {
+  WORKOUT_SESSION_SELECT,
+  WORKOUT_SESSION_ITEM_SELECT,
+  WORKOUT_SESSION_SET_SELECT,
+};

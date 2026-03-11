@@ -5,11 +5,21 @@
 - [ ] User can start a workout session and see it on the Workouts list and Dashboard
 - [ ] User can complete a workout session and then see duration + completed status in the Workouts list and the session detail screen
 
-## Routing contract
-- `/workout/[id]` is: **SESSION detail**
+---
+
+# Routing contract
+
+- `/sessions/[id]` is: **SESSION detail**
 - The `id` param is a `workout_sessions.id`
 
-## Conventions
+Optional session entry route:
+
+- `/sessions/start` starts a new workout session flow
+
+---
+
+# Conventions
+
 - **Database + API field casing:** `snake_case`
 - **Time:** `timestamptz` (UTC)
 - **IDs:** `uuid`
@@ -17,116 +27,93 @@
 
 ---
 
-## Entities
+# Entities
 
-## 1) `workout_sessions` (MVP required)
+---
+
+# 1) `workout_sessions` (MVP required)
+
 Purpose: represents a single workout session the user starts and later completes.
 
-### Fields
+## Fields
+
 - `id` (uuid, pk, default `gen_random_uuid()`)
 - `user_id` (uuid, not null, fk → `auth.users.id`)
 - `title` (text, nullable)
 - `activity_type` (text, not null)  
-  Examples: `strength`, `cardio`, `mobility`, `hiit`
+  Examples:
+  - `strength`
+  - `cardio`
+  - `mobility`
+  - `hiit`
+
+- `plan_id` (uuid, nullable, fk → `planned_workouts.id`)
+  - Links a session to a planned workout
+  - Used for **plan → execution tracking**
+
+- `template_id` (uuid, nullable, fk → `workout_templates.id`)
+  - Used when starting a session from a template
+
 - `started_at` (timestamptz, not null, default `now()`)
 - `ended_at` (timestamptz, nullable)
+
 - `duration_min` (int, nullable)  
-  Set when completing a session (see rules)
+  Set when completing a session.
+
 - `created_at` (timestamptz, not null, default `now()`)
 - `updated_at` (timestamptz, not null, default `now()`)
 
-### Derived status (do not store)
-- `status`:
-  - `active` if `ended_at IS NULL`
-  - `completed` if `ended_at IS NOT NULL`
+---
 
-### Rules (hard constraints)
-- **Start session**
-  - Insert a row with:
-    - `user_id = auth.uid()`
-    - `started_at = now()` (or provided)
-    - `ended_at = null`
-    - `duration_min = null`
-- **Complete session**
-  - Update the row to set:
-    - `ended_at = now()` (or provided)
-    - `duration_min = CEIL(EXTRACT(EPOCH FROM (ended_at - started_at)) / 60)`
-  - `ended_at` must be `>= started_at`
-- **Idempotency**
-  - Completing a session that is already completed should be a no-op or return an explicit “already completed” response (implementation choice; document it in API)
+# Derived status (do not store)
 
-### Indexes (minimum)
-- `(user_id, started_at DESC)` for list screens
-- `(user_id, ended_at)` if you later query active vs completed frequently
+`status` is derived:
 
-### RLS (required)
-- SELECT: `user_id = auth.uid()`
-- INSERT: `user_id = auth.uid()`
-- UPDATE: `user_id = auth.uid()`
-- DELETE: `user_id = auth.uid()` (optional; MVP doesn’t require delete)
+- `active` if `ended_at IS NULL`
+- `completed` if `ended_at IS NOT NULL`
 
 ---
 
-## 2) `workout_templates` (optional, NOT MVP)
-Purpose: library of planned workouts the user can start from later.
+# Rules (hard constraints)
 
-### Fields
-- `id` (uuid, pk)
-- `title` (text, not null)
-- `description` (text, nullable)
-- `difficulty` (text, nullable)  
-  Examples: `beginner`, `intermediate`, `advanced`
-- `duration_min` (int, nullable)
-- `created_at` (timestamptz, not null, default `now()`)
-- `updated_at` (timestamptz, not null, default `now()`)
+## Start session
 
-### Notes
-- Templates are not required for MVP. Do not block MVP on templates.
+Insert a row with:
 
----
+- `user_id = auth.uid()`
+- `started_at = now()` (or provided)
+- `ended_at = null`
+- `duration_min = null`
 
-## 3) `workout_exercises` (optional; only if templates exist)
-Purpose: exercises that belong to a template (planned workout).
+Optional relationships:
 
-### Fields
-- `id` (uuid, pk)
-- `template_id` (uuid, not null, fk → `workout_templates.id`)
-- `name` (text, not null)
-- `sets` (int, nullable)
-- `reps` (int, nullable)
-- `duration_seconds` (int, nullable)
-- `notes` (text, nullable)
-- `sort_order` (int, not null, default 0)
-
-### Notes
-- Not required for MVP session tracking.
+- `plan_id`
+- `template_id`
 
 ---
 
-## API contract (mobile app)
-These function names should map 1:1 to your Supabase calls.
+## Complete session
 
-### Sessions (MVP)
-- `startWorkoutSession(payload)`
-  - inserts into `workout_sessions`
-- `listWorkoutSessions(userId)`
-  - queries `workout_sessions` by `user_id`
-- `getWorkoutSessionById(id)`
-  - reads `workout_sessions` where `id = :id` (RLS enforces ownership)
-- `completeWorkoutSession(id)`
-  - updates `ended_at` + `duration_min`
+Update the row to set:
 
-### Field expectations in the app
-- Use `started_at`, `ended_at`, `duration_min`, `activity_type` everywhere
-- Do not use `durationMinutes` or mixed casing for any session objects
+- `ended_at = now()` (or provided)
+- `duration_min = CEIL(EXTRACT(EPOCH FROM (ended_at - started_at)) / 60)`
+
+Constraint:
+
+- `ended_at >= started_at`
 
 ---
 
-## UI alignment checklist
-- Workouts tab list:
-  - title, activity_type, started_at, ended_at (or “active”), duration_min (if completed)
-- Dashboard “Today”:
-  - show the most recent session (or current active one)
-- Session detail `/workout/[id]`:
-  - show status + duration
-  - “Mark Complete” enabled only when `ended_at` is null
+## Idempotency
+
+Completing a session that is already completed should either:
+
+- return a no-op response
+- or return an explicit `"already completed"` response
+
+Implementation choice.
+
+---
+
+# Indexes (minimum)

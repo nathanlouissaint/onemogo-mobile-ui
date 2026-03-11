@@ -3,7 +3,6 @@ import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -41,12 +40,14 @@ function getErrMsg(e: unknown, fallback: string) {
   if (e && typeof e === "object") {
     const anyErr = e as any;
     if (typeof anyErr.message === "string") return anyErr.message;
-    if (typeof anyErr.error_description === "string")
+    if (typeof anyErr.error_description === "string") {
       return anyErr.error_description;
+    }
     if (typeof anyErr.details === "string") return anyErr.details;
     if (typeof anyErr.hint === "string") return anyErr.hint;
-    if (typeof anyErr.code === "string" && typeof anyErr.message === "string")
+    if (typeof anyErr.code === "string" && typeof anyErr.message === "string") {
       return `${anyErr.code}: ${anyErr.message}`;
+    }
   }
   return fallback;
 }
@@ -193,11 +194,9 @@ function pickTodayPlan(plans: PlannedWorkout[]) {
   if (!plans?.length) return null;
 
   const todayKey = ymdLocal(new Date());
-
   const sameDayPlans = plans.filter((p) => getPlanDateKey(p) === todayKey);
 
   if (!sameDayPlans.length) return null;
-
   return sameDayPlans[0] ?? null;
 }
 
@@ -226,7 +225,6 @@ export default function HomeScreen() {
     };
 
     if (!sessions.length) return base;
-
     return { ...base, ...computeDashboardMetrics(sessions, weeklyGoalMin) };
   }, [user, sessions, weeklyGoalMin]);
 
@@ -370,222 +368,239 @@ export default function HomeScreen() {
   const statusLabel = todaySession?.ended_at ? "Completed" : "Active";
 
   return (
-    <Screen>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <Text style={styles.kicker}>Dashboard</Text>
-          <Text style={styles.title}>Welcome back, {metrics.name}</Text>
-          <Text style={styles.sub}>Stay consistent. Small wins compound.</Text>
-        </View>
+    <Screen scroll contentStyle={styles.screenContent}>
+      <View style={styles.header}>
+        <Text style={styles.kicker}>Dashboard</Text>
+        <Text style={styles.title}>Welcome back, {metrics.name}</Text>
+        <Text style={styles.sub}>Stay consistent. Small wins compound.</Text>
+      </View>
 
-        <View style={styles.row}>
-          <Card style={styles.half}>
-            <Text style={styles.label}>Streak</Text>
-            <Text style={styles.value}>{metrics.streak}</Text>
-            <Text style={styles.meta}>days</Text>
-          </Card>
-
-          <Card style={styles.half}>
-            <Text style={styles.label}>Workouts</Text>
-            <Text style={styles.value}>{metrics.weeklyWorkouts}</Text>
-            <Text style={styles.meta}>this week</Text>
-          </Card>
-        </View>
-
-        <Card style={styles.progress}>
-          <View style={styles.progressTop}>
-            <View>
-              <Text style={styles.label}>Weekly minutes</Text>
-              <Text style={styles.value}>{metrics.minutesThisWeek}</Text>
-              <Text style={styles.meta}>
-                of {metrics.weeklyGoalMin} min goal
-              </Text>
-            </View>
-
-            <View style={styles.pill}>
-              <Text style={styles.pillText}>{pct}%</Text>
-            </View>
-          </View>
-
-          <View style={styles.track}>
-            <View style={[styles.fill, { width: `${pct}%` }]} />
-          </View>
+      <View style={styles.statsRow}>
+        <Card style={styles.halfCard}>
+          <Text style={styles.label}>Streak</Text>
+          <Text style={styles.value}>{metrics.streak}</Text>
+          <Text style={styles.meta}>days</Text>
         </Card>
 
-        <Card style={styles.today}>
-          <View style={styles.todayHeaderRow}>
-            <Text style={styles.section}>Today</Text>
-            {loading ? (
-              <View style={styles.todayStatus}>
-                <ActivityIndicator />
-              </View>
-            ) : null}
+        <Card style={styles.halfCard}>
+          <Text style={styles.label}>Workouts</Text>
+          <Text style={styles.value}>{metrics.weeklyWorkouts}</Text>
+          <Text style={styles.meta}>this week</Text>
+        </Card>
+      </View>
+
+      <Card style={styles.progressCard}>
+        <View style={styles.progressTop}>
+          <View>
+            <Text style={styles.label}>Weekly minutes</Text>
+            <Text style={styles.value}>{metrics.minutesThisWeek}</Text>
+            <Text style={styles.meta}>
+              of {metrics.weeklyGoalMin} min goal
+            </Text>
           </View>
 
-          {!loading && err ? (
-            <>
-              <Text style={styles.errorText}>{err}</Text>
-              <View style={{ marginTop: theme.spacing.md }}>
-                <PrimaryButton label="Retry" onPress={fetchDashboardData} />
-              </View>
-            </>
+          <View style={styles.pill}>
+            <Text style={styles.pillText}>{pct}%</Text>
+          </View>
+        </View>
+
+        <View style={styles.track}>
+          <View style={[styles.fill, { width: `${pct}%` }]} />
+        </View>
+      </Card>
+
+      <Card style={styles.todayCard}>
+        <View style={styles.todayHeaderRow}>
+          <Text style={styles.section}>Today</Text>
+          {loading ? (
+            <View style={styles.todayStatus}>
+              <ActivityIndicator color={theme.colors.accent} />
+            </View>
           ) : null}
+        </View>
 
-          {!loading && !err && todaySession ? (
-            <>
-              <View style={styles.todayRow}>
-                <Text style={styles.workoutTitle}>{todaySessionTitle}</Text>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {todaySession.activity_type
-                      ? formatActivityType(todaySession.activity_type)
-                      : "—"}
-                  </Text>
-                </View>
+        {!loading && err ? (
+          <>
+            <Text style={styles.errorText}>{err}</Text>
+            <View style={styles.actionTopSpace}>
+              <PrimaryButton label="Retry" onPress={fetchDashboardData} />
+            </View>
+          </>
+        ) : null}
+
+        {!loading && !err && todaySession ? (
+          <>
+            <View style={styles.todayRow}>
+              <Text style={styles.workoutTitle}>{todaySessionTitle}</Text>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {todaySession.activity_type
+                    ? formatActivityType(todaySession.activity_type)
+                    : "—"}
+                </Text>
               </View>
+            </View>
 
-              <Text style={styles.meta}>
-                {statusLabel}
-                {" • "}
-                {typeof todaySession.duration_min === "number"
-                  ? `${todaySession.duration_min} minutes`
-                  : "Duration —"}
-              </Text>
+            <Text style={styles.meta}>
+              {statusLabel}
+              {" • "}
+              {typeof todaySession.duration_min === "number"
+                ? `${todaySession.duration_min} minutes`
+                : "Duration —"}
+            </Text>
 
-              <View style={{ marginTop: theme.spacing.md }}>
-                <PrimaryButton
-                  label={
-                    todaySession.ended_at ? "View Session" : "Continue Session"
-                  }
-                  onPress={onOpenTodaySession}
-                />
+            <View style={styles.actionTopSpace}>
+              <PrimaryButton
+                label={todaySession.ended_at ? "View Session" : "Continue Session"}
+                onPress={onOpenTodaySession}
+              />
+            </View>
+          </>
+        ) : null}
+
+        {!loading && !err && !todaySession && todayPlan ? (
+          <>
+            <View style={styles.todayRow}>
+              <Text style={styles.workoutTitle}>{todayPlanTitle}</Text>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {formatActivityType(
+                    (todayPlan as any)?.activity_type ??
+                      (todayPlan as any)?.type
+                  )}
+                </Text>
               </View>
-            </>
-          ) : null}
+            </View>
 
-          {!loading && !err && !todaySession && todayPlan ? (
-            <>
-              <View style={styles.todayRow}>
-                <Text style={styles.workoutTitle}>{todayPlanTitle}</Text>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {formatActivityType(
-                      (todayPlan as any)?.activity_type ??
-                        (todayPlan as any)?.type
-                    )}
-                  </Text>
-                </View>
-              </View>
+            <Text style={styles.meta}>Planned for today</Text>
 
-              <Text style={styles.meta}>Planned for today</Text>
+            <View style={styles.actionTopSpace}>
+              <PrimaryButton
+                label="Start Planned Workout"
+                onPress={onStartTodayPlan}
+              />
+            </View>
+          </>
+        ) : null}
 
-              <View style={{ marginTop: theme.spacing.md }}>
-                <PrimaryButton
-                  label="Start Planned Workout"
-                  onPress={onStartTodayPlan}
-                />
-              </View>
-            </>
-          ) : null}
+        {!loading && !err && !todaySession && !todayPlan ? (
+          <>
+            <Text style={styles.meta}>
+              No session or planned workout for today.
+            </Text>
+            <View style={styles.actionTopSpace}>
+              <PrimaryButton label="Refresh" onPress={fetchDashboardData} />
+            </View>
+          </>
+        ) : null}
+      </Card>
 
-          {!loading && !err && !todaySession && !todayPlan ? (
-            <>
-              <Text style={styles.meta}>
-                No session or planned workout for today.
-              </Text>
-              <View style={{ marginTop: theme.spacing.md }}>
-                <PrimaryButton label="Refresh" onPress={fetchDashboardData} />
-              </View>
-            </>
-          ) : null}
-        </Card>
+      <WorkoutCalendar
+        sessions={sessions}
+        plans={plans}
+        defaultActivityType="lifting"
+        onStartWorkout={startFromCalendar}
+        onOpenSession={(id) =>
+          router.push({ pathname: "/sessions/[id]", params: { id } })
+        }
+        onDayPress={onDayPressForPlan}
+      />
 
-        <WorkoutCalendar
-          sessions={sessions}
-          plans={plans}
-          defaultActivityType="lifting"
-          onStartWorkout={startFromCalendar}
-          onOpenSession={(id) =>
-            router.push({ pathname: "/sessions/[id]", params: { id } })
-          }
-          onDayPress={onDayPressForPlan}
+      {selectedPlanDate && (
+        <PlanDayDrawer
+          visible={planDrawerOpen}
+          onClose={() => {
+            setPlanDrawerOpen(false);
+            setSelectedPlanDate(null);
+            fetchDashboardData();
+          }}
+          planDate={selectedPlanDate}
         />
-
-        {selectedPlanDate && (
-          <PlanDayDrawer
-            visible={planDrawerOpen}
-            onClose={() => {
-              setPlanDrawerOpen(false);
-              setSelectedPlanDate(null);
-              fetchDashboardData();
-            }}
-            planDate={selectedPlanDate}
-          />
-        )}
-      </ScrollView>
+      )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingBottom: 28 },
+  screenContent: {
+    paddingBottom: theme.spacing.xl,
+  },
 
-  header: { marginBottom: theme.spacing.lg },
+  header: {
+    marginBottom: theme.spacing.lg,
+  },
+
   kicker: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
+
   title: {
     color: theme.colors.text,
     fontSize: theme.font.size.xxl,
     fontWeight: "900",
-    marginTop: 8,
+    marginTop: theme.spacing.xs,
   },
+
   sub: {
     color: theme.colors.textMuted,
-    marginTop: 10,
+    marginTop: theme.spacing.sm,
     fontSize: theme.font.size.md,
   },
 
-  row: { flexDirection: "row", gap: theme.spacing.sm },
-  half: { flex: 1 },
+  statsRow: {
+    flexDirection: "row",
+    gap: theme.spacing.sm,
+  },
+
+  halfCard: {
+    flex: 1,
+  },
 
   label: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
+
   value: {
     color: theme.colors.text,
     fontSize: theme.font.size.xl,
     fontWeight: "900",
-    marginTop: 10,
+    marginTop: theme.spacing.sm,
   },
+
   meta: {
     color: theme.colors.textMuted,
-    marginTop: 6,
+    marginTop: theme.spacing.xs,
     fontSize: theme.font.size.sm,
   },
 
-  progress: { marginTop: theme.spacing.sm },
+  progressCard: {
+    marginTop: theme.spacing.sm,
+  },
+
   progressTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
+
   pill: {
     backgroundColor: "rgba(10,132,255,0.14)",
     borderWidth: 1,
     borderColor: "rgba(10,132,255,0.25)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
     borderRadius: 999,
   },
-  pillText: { color: theme.colors.text, fontWeight: "800" },
+
+  pillText: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
 
   track: {
     height: 10,
@@ -597,34 +612,46 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
   },
 
-  fill: { height: "100%", backgroundColor: theme.colors.accent },
+  fill: {
+    height: "100%",
+    backgroundColor: theme.colors.accent,
+  },
 
-  today: { marginTop: theme.spacing.lg },
+  todayCard: {
+    marginTop: theme.spacing.lg,
+  },
+
   todayHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  todayStatus: { paddingLeft: 12 },
+
+  todayStatus: {
+    paddingLeft: theme.spacing.sm,
+  },
 
   section: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
+
   todayRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 10,
+    marginTop: theme.spacing.sm,
   },
+
   workoutTitle: {
+    flex: 1,
+    paddingRight: theme.spacing.sm,
     color: theme.colors.text,
     fontSize: theme.font.size.lg,
     fontWeight: "900",
-    flex: 1,
-    paddingRight: 10,
   },
+
   badge: {
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
@@ -633,15 +660,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
   },
+
   badgeText: {
     color: theme.colors.textMuted,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
 
+  actionTopSpace: {
+    marginTop: theme.spacing.md,
+  },
+
   errorText: {
-    marginTop: 10,
-    color: "#ff6b6b",
+    marginTop: theme.spacing.sm,
+    color: theme.colors.danger,
+    fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
 });

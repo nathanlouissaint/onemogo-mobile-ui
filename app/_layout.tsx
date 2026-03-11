@@ -1,26 +1,36 @@
 // app/_layout.tsx
 import React from "react";
-import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
+import { DarkTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
-import { useColorScheme } from "../src/hooks/use-color-scheme";
 import { SessionProvider } from "../src/session/SessionContext";
+import { theme } from "../src/constants/theme";
+
+const navigationTheme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    primary: theme.colors.accent,
+    background: theme.colors.bg,
+    card: theme.colors.bg,
+    text: theme.colors.text,
+    border: theme.colors.border,
+    notification: theme.colors.accent,
+  },
+};
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <SessionProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={navigationTheme}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
-          <Stack.Screen name="onboarding" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="modal" options={{ presentation: "modal" }} />
         </Stack>
-        <StatusBar style="auto" />
+        <StatusBar style="light" />
       </ThemeProvider>
     </SessionProvider>
   );

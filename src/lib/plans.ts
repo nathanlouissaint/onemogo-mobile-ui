@@ -11,7 +11,7 @@ export type PlannedWorkout = {
   template_id: string | null;
   title: string | null;
 
-  // NEW: required for Start-from-Plan
+  // required for Start-from-Plan
   activity_type: string;
 
   scheduled_time: string | null; // "HH:MM:SS" (Supabase time)
@@ -32,16 +32,28 @@ export type UpsertPlanInput = {
   templateId?: string | null;
   title?: string | null;
 
-  // NEW: optional on input, but stored NOT NULL in DB (default 'lifting')
+  // optional on input, but stored NOT NULL in DB
   activityType?: string | null;
 
   scheduledTime?: string | null; // "HH:MM:SS" or null
   notes?: string | null;
 
-  // Optional updates
   status?: PlannedWorkoutStatus;
   plannedDurationMin?: number | null;
   plannedRpe?: number | null;
+};
+
+type PlannedWorkoutUpsertPayload = {
+  user_id: string;
+  plan_date: string;
+  template_id: string | null;
+  title: string | null;
+  scheduled_time: string | null;
+  notes: string | null;
+  activity_type?: string;
+  status?: PlannedWorkoutStatus;
+  planned_duration_min?: number | null;
+  planned_rpe?: number | null;
 };
 
 // Keep selects explicit so schema changes don’t silently break UI assumptions
@@ -49,6 +61,12 @@ const PLAN_SELECT =
   "id,user_id,plan_date,template_id,title,activity_type,scheduled_time,notes,status,planned_duration_min,planned_rpe,created_at,updated_at";
 
 // ---------- helpers ----------
+function requireId(value: string, label: string) {
+  const v = (value ?? "").toString().trim();
+  if (!v) throw new Error(`Missing ${label}.`);
+  return v;
+}
+
 export function toISODate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -81,26 +99,44 @@ export function normalizePlanDate(planDate: string): string {
 
 function normalizeRpe(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
+
   const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n)) throw new Error(`Invalid plannedRpe: "${String(v)}"`);
+  if (!Number.isFinite(n)) {
+    throw new Error(`Invalid plannedRpe: "${String(v)}"`);
+  }
+
   const i = Math.round(n);
-  if (i < 1 || i > 10) throw new Error("plannedRpe must be between 1 and 10");
+  if (i < 1 || i > 10) {
+    throw new Error("plannedRpe must be between 1 and 10");
+  }
+
   return i;
 }
 
 function normalizeDurationMin(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
+
   const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n))
+  if (!Number.isFinite(n)) {
     throw new Error(`Invalid plannedDurationMin: "${String(v)}"`);
+  }
+
   const i = Math.round(n);
-  if (i < 0) throw new Error("plannedDurationMin must be >= 0");
+  if (i < 0) {
+    throw new Error("plannedDurationMin must be >= 0");
+  }
+
   return i;
 }
 
 function normalizeActivityType(v: unknown): string {
-  const s = String(v ?? "").trim();
-  return s.length ? s : "lifting";
+  const s = String(v ?? "").toLowerCase().trim();
+
+  if (!s) return "strength";
+  if (s === "lifting") return "strength";
+  if (s === "run" || s === "running") return "cardio";
+
+  return s;
 }
 
 function startOfMonthLocal(d: Date) {
@@ -110,20 +146,15 @@ function startOfMonthLocal(d: Date) {
   return x;
 }
 
-function endOfMonthLocal(d: Date) {
-  const x = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
 // ---------- queries ----------
 export async function getPlanForDate(userId: string, planDate: string) {
+  const uid = requireId(userId, "userId");
   const key = normalizePlanDate(planDate);
 
   const { data, error } = await supabase
     .from("planned_workouts")
     .select(PLAN_SELECT)
-    .eq("user_id", userId)
+    .eq("user_id", uid)
     .eq("plan_date", key)
     .maybeSingle();
 
@@ -132,10 +163,12 @@ export async function getPlanForDate(userId: string, planDate: string) {
 }
 
 export async function getPlanById(planId: string) {
+  const id = requireId(planId, "planId");
+
   const { data, error } = await supabase
     .from("planned_workouts")
     .select(PLAN_SELECT)
-    .eq("id", planId)
+    .eq("id", id)
     .single();
 
   if (error) throw error;
@@ -143,11 +176,11 @@ export async function getPlanById(planId: string) {
 }
 
 export async function upsertPlan(input: UpsertPlanInput) {
+  const uid = requireId(input.userId, "userId");
   const key = normalizePlanDate(input.planDate);
 
-  // Only include optional fields if the caller provided them
-  const payload: any = {
-    user_id: input.userId,
+  const payload: PlannedWorkoutUpsertPayload = {
+    user_id: uid,
     plan_date: key,
     template_id: input.templateId ?? null,
     title: input.title ?? null,
@@ -155,17 +188,20 @@ export async function upsertPlan(input: UpsertPlanInput) {
     notes: input.notes ?? null,
   };
 
-  // activity_type:
-  // - if provided, set it
-  // - if not provided, do NOT overwrite existing row (important)
+  // If provided, set it.
+  // If omitted, do not overwrite an existing row’s activity_type.
   if (input.activityType !== undefined) {
     payload.activity_type = normalizeActivityType(input.activityType);
   }
 
-  if (input.status !== undefined) payload.status = input.status;
+  if (input.status !== undefined) {
+    payload.status = input.status;
+  }
 
   if (input.plannedDurationMin !== undefined) {
-    payload.planned_duration_min = normalizeDurationMin(input.plannedDurationMin);
+    payload.planned_duration_min = normalizeDurationMin(
+      input.plannedDurationMin
+    );
   }
 
   if (input.plannedRpe !== undefined) {
@@ -183,12 +219,13 @@ export async function upsertPlan(input: UpsertPlanInput) {
 }
 
 export async function deletePlanByDate(userId: string, planDate: string) {
+  const uid = requireId(userId, "userId");
   const key = normalizePlanDate(planDate);
 
   const { error } = await supabase
     .from("planned_workouts")
     .delete()
-    .eq("user_id", userId)
+    .eq("user_id", uid)
     .eq("plan_date", key);
 
   if (error) throw error;
@@ -207,15 +244,16 @@ export async function listPlansForRange(
   startDate: string,
   endDateExclusive: string
 ) {
+  const uid = requireId(userId, "userId");
   const startKey = normalizePlanDate(startDate);
   const endKey = normalizePlanDate(endDateExclusive);
 
   const { data, error } = await supabase
     .from("planned_workouts")
     .select(PLAN_SELECT)
-    .eq("user_id", userId)
+    .eq("user_id", uid)
     .gte("plan_date", startKey)
-    .lt("plan_date", endKey) // ✅ exclusive end
+    .lt("plan_date", endKey)
     .order("plan_date", { ascending: true });
 
   if (error) throw error;
@@ -223,11 +261,13 @@ export async function listPlansForRange(
 }
 
 export async function listPlansForMonth(userId: string, monthCursor: Date) {
-  // Exclusive end month range
   const start = toISODate(startOfMonthLocal(monthCursor));
   const endExclusive = toISODate(
-    startOfMonthLocal(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1))
+    startOfMonthLocal(
+      new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1)
+    )
   );
+
   return listPlansForRange(userId, start, endExclusive);
 }
 
@@ -237,12 +277,13 @@ export async function setPlanStatusByDate(params: {
   planDate: string;
   status: PlannedWorkoutStatus;
 }) {
+  const uid = requireId(params.userId, "userId");
   const key = normalizePlanDate(params.planDate);
 
   const { data, error } = await supabase
     .from("planned_workouts")
     .update({ status: params.status })
-    .eq("user_id", params.userId)
+    .eq("user_id", uid)
     .eq("plan_date", key)
     .select(PLAN_SELECT)
     .maybeSingle();

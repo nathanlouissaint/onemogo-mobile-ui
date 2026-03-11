@@ -2,16 +2,18 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Modal,
+  Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
-  Platform,
-  StyleSheet,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+
+import { theme } from "../constants/theme";
+import { type PlannedWorkout, toTimeString, upsertPlan } from "../lib/plans";
 import { useSession } from "../session/SessionContext";
-import { PlannedWorkout, toTimeString, upsertPlan } from "../lib/plans";
 
 type Props = {
   visible: boolean;
@@ -21,13 +23,21 @@ type Props = {
   onSaved: (p: PlannedWorkout) => void;
 };
 
+const ACTIVITY_OPTIONS = [
+  { label: "Strength", value: "strength" },
+  { label: "Cardio", value: "cardio" },
+  { label: "Mobility", value: "mobility" },
+  { label: "Recovery", value: "recovery" },
+] as const;
+
 function getErrMsg(e: unknown, fallback: string) {
   if (typeof e === "string") return e;
   if (e && typeof e === "object") {
-    const anyErr = e as any;
+    const anyErr = e as Record<string, unknown>;
     if (typeof anyErr.message === "string") return anyErr.message;
-    if (typeof anyErr.error_description === "string")
+    if (typeof anyErr.error_description === "string") {
       return anyErr.error_description;
+    }
     if (typeof anyErr.details === "string") return anyErr.details;
     if (typeof anyErr.hint === "string") return anyErr.hint;
   }
@@ -42,11 +52,20 @@ function makeInitialTime(existingTime?: string | null) {
     const [h, m] = existingTime.split(":");
     d.setHours(Number(h), Number(m), 0, 0);
   }
+
   return d;
 }
 
 function onlyDigitsOrEmpty(s: string) {
   return s === "" || /^[0-9]+$/.test(s);
+}
+
+function normalizeActivityType(v?: string | null) {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return "strength";
+  if (s === "lifting") return "strength";
+  if (s === "run" || s === "running") return "cardio";
+  return s;
 }
 
 export function PlanBuilderModal({
@@ -61,23 +80,23 @@ export function PlanBuilderModal({
 
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+  const [activityType, setActivityType] = useState<string>("strength");
 
   const [timeEnabled, setTimeEnabled] = useState(false);
   const [time, setTime] = useState<Date>(() => makeInitialTime(null));
 
-  // NEW: Phase 1 inputs
-  const [durationMin, setDurationMin] = useState<string>(""); // store as string for input UX
-  const [rpe, setRpe] = useState<string>(""); // store as string for input UX
+  const [durationMin, setDurationMin] = useState<string>("");
+  const [rpe, setRpe] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Rehydrate local state when opening / switching day
   useEffect(() => {
     if (!visible) return;
 
     setTitle(existing?.title ?? "");
     setNotes(existing?.notes ?? "");
+    setActivityType(normalizeActivityType(existing?.activity_type));
 
     setTimeEnabled(!!existing?.scheduled_time);
     setTime(makeInitialTime(existing?.scheduled_time ?? null));
@@ -87,7 +106,12 @@ export function PlanBuilderModal({
         ? String(existing.planned_duration_min)
         : ""
     );
-    setRpe(typeof existing?.planned_rpe === "number" ? String(existing.planned_rpe) : "");
+
+    setRpe(
+      typeof existing?.planned_rpe === "number"
+        ? String(existing.planned_rpe)
+        : ""
+    );
 
     setError(null);
     setSaving(false);
@@ -96,9 +120,10 @@ export function PlanBuilderModal({
     planDate,
     existing?.id,
     existing?.updated_at,
-    existing?.scheduled_time,
     existing?.title,
     existing?.notes,
+    existing?.activity_type,
+    existing?.scheduled_time,
     existing?.planned_duration_min,
     existing?.planned_rpe,
   ]);
@@ -119,39 +144,56 @@ export function PlanBuilderModal({
 
   const canSave = useMemo(() => {
     const t = title.trim();
+
     if (t.length === 0 || t.length > 60) return false;
     if (notes.length > 1000) return false;
 
-    // duration: empty ok; otherwise >=0 integer
+    if (!ACTIVITY_OPTIONS.some((option) => option.value === activityType)) {
+      return false;
+    }
+
     if (parsedDuration !== null) {
       if (!Number.isFinite(parsedDuration)) return false;
       if (parsedDuration < 0) return false;
     }
 
-    // rpe: empty ok; otherwise 1..10 integer
     if (parsedRpe !== null) {
       if (!Number.isFinite(parsedRpe)) return false;
       if (parsedRpe < 1 || parsedRpe > 10) return false;
     }
 
     return true;
-  }, [title, notes, parsedDuration, parsedRpe]);
+  }, [title, notes, activityType, parsedDuration, parsedRpe]);
 
   const onSave = async () => {
-    if (!userId) return;
+    if (!userId) {
+      setError("No user session found. Please log in again.");
+      return;
+    }
+
     setError(null);
 
     const t = title.trim();
+    const trimmedNotes = notes.trim();
+    const normalizedActivity = normalizeActivityType(activityType);
+
     if (t.length === 0) {
-      setError("Title is required (template optional).");
+      setError("Title is required.");
       return;
     }
+
     if (t.length > 60) {
       setError("Title must be 60 characters or less.");
       return;
     }
+
     if (notes.length > 1000) {
       setError("Notes must be 1000 characters or less.");
+      return;
+    }
+
+    if (!ACTIVITY_OPTIONS.some((option) => option.value === normalizedActivity)) {
+      setError("Select a valid activity type.");
       return;
     }
 
@@ -178,16 +220,16 @@ export function PlanBuilderModal({
     }
 
     setSaving(true);
+
     try {
       const planned = await upsertPlan({
         userId,
-        planDate, // MUST remain YYYY-MM-DD local key
+        planDate,
         title: t,
-        notes: notes.trim() ? notes.trim() : null,
+        notes: trimmedNotes ? trimmedNotes : null,
         scheduledTime: timeEnabled ? toTimeString(time) : null,
-        templateId: null,
-
-        // NEW: only pass when user provided value
+        templateId: existing?.template_id ?? null,
+        activityType: normalizedActivity,
         plannedDurationMin: parsedDuration === null ? undefined : parsedDuration,
         plannedRpe: parsedRpe === null ? undefined : parsedRpe,
       });
@@ -195,7 +237,7 @@ export function PlanBuilderModal({
       onSaved(planned);
       onClose();
     } catch (e: unknown) {
-      setError(getErrMsg(e, "Failed to save."));
+      setError(getErrMsg(e, "Failed to save plan."));
     } finally {
       setSaving(false);
     }
@@ -208,9 +250,12 @@ export function PlanBuilderModal({
 
         <View style={styles.sheet}>
           <View style={styles.headerRow}>
-            <Text style={styles.headerTitle}>
-              {existing ? "Edit plan" : "Plan workout"} • {planDate}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.headerEyebrow}>
+                {existing ? "Edit plan" : "Plan workout"}
+              </Text>
+              <Text style={styles.headerTitle}>{planDate}</Text>
+            </View>
 
             <Pressable onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>Close</Text>
@@ -221,12 +266,39 @@ export function PlanBuilderModal({
           <TextInput
             value={title}
             onChangeText={setTitle}
-            placeholder="e.g., Push day, Legs, Lifting session"
-            placeholderTextColor="#666"
+            placeholder="e.g. Push Day, Legs, Easy Run"
+            placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
+            maxLength={60}
           />
 
-          {/* NEW: Duration + RPE */}
+          <Text style={styles.label}>Activity type</Text>
+          <View style={styles.optionRow}>
+            {ACTIVITY_OPTIONS.map((option) => {
+              const active = activityType === option.value;
+
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => setActivityType(option.value)}
+                  style={[
+                    styles.optionPill,
+                    active && styles.optionPillActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.optionPillText,
+                      active && styles.optionPillTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           <View style={styles.inlineRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.label}>Planned duration (min)</Text>
@@ -236,8 +308,8 @@ export function PlanBuilderModal({
                   if (!onlyDigitsOrEmpty(v)) return;
                   setDurationMin(v);
                 }}
-                placeholder="e.g., 45"
-                placeholderTextColor="#666"
+                placeholder="e.g. 45"
+                placeholderTextColor={theme.colors.textMuted}
                 keyboardType="number-pad"
                 style={styles.input}
               />
@@ -254,7 +326,7 @@ export function PlanBuilderModal({
                   setRpe(v);
                 }}
                 placeholder="1–10"
-                placeholderTextColor="#666"
+                placeholderTextColor={theme.colors.textMuted}
                 keyboardType="number-pad"
                 style={styles.input}
               />
@@ -266,7 +338,7 @@ export function PlanBuilderModal({
               onPress={() => setTimeEnabled((v) => !v)}
               style={[
                 styles.timeToggle,
-                { backgroundColor: timeEnabled ? "#2563eb" : "#333" },
+                timeEnabled ? styles.timeToggleActive : null,
               ]}
             >
               <Text style={styles.timeToggleText}>
@@ -274,8 +346,8 @@ export function PlanBuilderModal({
               </Text>
             </Pressable>
 
-            {timeEnabled && (
-              <View style={{ marginLeft: 12 }}>
+            {timeEnabled ? (
+              <View style={styles.timePickerWrap}>
                 {Platform.OS !== "web" ? (
                   <DateTimePicker
                     value={time}
@@ -286,39 +358,40 @@ export function PlanBuilderModal({
                     }}
                   />
                 ) : (
-                  <Text style={{ color: "#bbb" }}>
+                  <Text style={styles.webTimeHint}>
                     Time picker not supported on web in this MVP.
                   </Text>
                 )}
               </View>
-            )}
+            ) : null}
           </View>
 
           <Text style={styles.label}>Notes</Text>
           <TextInput
             value={notes}
             onChangeText={setNotes}
-            placeholder="Targets, cues, gym, equipment, anything you want to remember."
-            placeholderTextColor="#666"
+            placeholder="Targets, cues, equipment, gym, recovery notes."
+            placeholderTextColor={theme.colors.textMuted}
             multiline
             style={styles.notes}
+            maxLength={1000}
           />
 
-          {!!error && <Text style={styles.errorText}>{error}</Text>}
+          {!!error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <Pressable
             onPress={onSave}
             disabled={!canSave || saving}
             style={[
               styles.saveBtn,
-              { backgroundColor: canSave ? "#22c55e" : "#333" },
-              saving && { opacity: 0.7 },
+              canSave ? styles.saveBtnEnabled : styles.saveBtnDisabled,
+              saving && styles.disabledState,
             ]}
           >
             <Text
               style={[
                 styles.saveBtnText,
-                { color: canSave ? "#111" : "#fff" },
+                canSave ? styles.saveBtnTextEnabled : styles.saveBtnTextDisabled,
               ]}
             >
               {saving ? "Saving…" : "Save plan"}
@@ -332,19 +405,23 @@ export function PlanBuilderModal({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.45)",
   },
+
   sheet: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    padding: 16,
+    padding: theme.spacing.lg,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    backgroundColor: "#111",
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
   },
 
   headerRow: {
@@ -353,51 +430,149 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  headerEyebrow: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
+  headerTitle: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.lg,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+
   closeBtn: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  closeBtnText: { color: "#fff", fontWeight: "700" },
+  closeBtnText: {
+    color: theme.colors.text,
+    fontWeight: "800",
+  },
 
-  label: { color: "#aaa", marginTop: 12 },
+  label: {
+    color: theme.colors.textMuted,
+    marginTop: 12,
+    fontWeight: "700",
+  },
 
   input: {
     marginTop: 6,
     padding: 12,
     borderRadius: 12,
-    backgroundColor: "#1b1b1b",
-    color: "#fff",
+    backgroundColor: theme.colors.surface2,
+    color: theme.colors.text,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
 
-  inlineRow: { flexDirection: "row", alignItems: "flex-start" },
+  optionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  optionPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  optionPillActive: {
+    backgroundColor: "rgba(10,132,255,0.12)",
+    borderColor: theme.colors.accent,
+  },
+  optionPillText: {
+    color: theme.colors.textMuted,
+    fontWeight: "800",
+  },
+  optionPillTextActive: {
+    color: theme.colors.text,
+  },
 
-  timeRow: { flexDirection: "row", alignItems: "center", marginTop: 12 },
+  inlineRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 2,
+  },
+
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+    flexWrap: "wrap",
+  },
   timeToggle: {
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  timeToggleText: { color: "#fff", fontWeight: "700" },
+  timeToggleActive: {
+    backgroundColor: "rgba(10,132,255,0.12)",
+    borderColor: theme.colors.accent,
+  },
+  timeToggleText: {
+    color: theme.colors.text,
+    fontWeight: "800",
+  },
+  timePickerWrap: {
+    marginLeft: 12,
+  },
+  webTimeHint: {
+    color: theme.colors.textMuted,
+    fontWeight: "700",
+  },
 
   notes: {
     marginTop: 6,
     padding: 12,
     borderRadius: 12,
-    backgroundColor: "#1b1b1b",
-    color: "#fff",
+    backgroundColor: theme.colors.surface2,
+    color: theme.colors.text,
     minHeight: 90,
     textAlignVertical: "top",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
 
-  errorText: { color: "#fca5a5", marginTop: 10, fontWeight: "700" },
+  errorText: {
+    color: "#fca5a5",
+    marginTop: 10,
+    fontWeight: "800",
+  },
 
   saveBtn: {
     marginTop: 14,
     padding: 14,
     borderRadius: 12,
   },
-  saveBtnText: { textAlign: "center", fontWeight: "800" },
+  saveBtnEnabled: {
+    backgroundColor: "#22c55e",
+  },
+  saveBtnDisabled: {
+    backgroundColor: theme.colors.surface2,
+  },
+  saveBtnText: {
+    textAlign: "center",
+    fontWeight: "800",
+  },
+  saveBtnTextEnabled: {
+    color: "#111",
+  },
+  saveBtnTextDisabled: {
+    color: theme.colors.text,
+  },
+  disabledState: {
+    opacity: 0.7,
+  },
 });

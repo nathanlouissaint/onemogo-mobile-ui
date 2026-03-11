@@ -1,24 +1,20 @@
 // src/plans/PlanDayDrawer.tsx
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, Text, View, StyleSheet } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { useSession } from "../session/SessionContext";
-
+import { theme } from "../constants/theme";
 import {
   deletePlanByDate,
   getPlanForDate,
   markPlanCompletedByDate,
   markPlanSkippedByDate,
-  PlannedWorkout,
   resetPlanToPlannedByDate,
+  type PlannedWorkout,
 } from "../lib/plans";
-
-import {
-  getActiveWorkoutSession,
-  startWorkoutSession,
-} from "../lib/workouts";
-
+import { createWorkoutSessionFromPlan } from "../lib/workouts.mutations";
+import { getActiveWorkoutSession } from "../lib/workouts";
+import { useSession } from "../session/SessionContext";
 import { PlanBuilderModal } from "./PlanBuilderModal";
 
 type Props = {
@@ -30,10 +26,11 @@ type Props = {
 function getErrMsg(e: unknown, fallback: string) {
   if (typeof e === "string") return e;
   if (e && typeof e === "object") {
-    const anyErr = e as any;
+    const anyErr = e as Record<string, unknown>;
     if (typeof anyErr.message === "string") return anyErr.message;
-    if (typeof anyErr.error_description === "string")
+    if (typeof anyErr.error_description === "string") {
       return anyErr.error_description;
+    }
     if (typeof anyErr.details === "string") return anyErr.details;
     if (typeof anyErr.hint === "string") return anyErr.hint;
   }
@@ -41,11 +38,17 @@ function getErrMsg(e: unknown, fallback: string) {
 }
 
 function statusLabel(s: PlannedWorkout["status"] | null | undefined) {
-  if (!s) return "planned";
+  if (!s) return "Planned";
   if (s === "planned") return "Planned";
   if (s === "completed") return "Completed";
   if (s === "skipped") return "Skipped";
   return String(s);
+}
+
+function formatActivityType(v?: string | null) {
+  const s = String(v ?? "").trim();
+  if (!s) return "Workout";
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
@@ -54,6 +57,8 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
 
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [err, setErr] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlannedWorkout | null>(null);
@@ -61,7 +66,11 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
 
   const title = useMemo(() => {
     if (!plan) return null;
-    return plan.title ?? "Planned workout";
+    return plan.title?.trim() || "Planned workout";
+  }, [plan]);
+
+  const canStartPlan = useMemo(() => {
+    return !!plan && plan.status !== "completed" && plan.status !== "skipped";
   }, [plan]);
 
   const load = async () => {
@@ -87,9 +96,12 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
   }, [visible, planDate, userId]);
 
   const onDelete = async () => {
-    if (!userId) return;
+    if (!userId) {
+      setErr("No user session found. Please log in again.");
+      return;
+    }
 
-    setLoading(true);
+    setDeleting(true);
     setErr(null);
 
     try {
@@ -99,14 +111,17 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
     } catch (e: unknown) {
       setErr(getErrMsg(e, "Failed to delete plan"));
     } finally {
-      setLoading(false);
+      setDeleting(false);
     }
   };
 
   const setStatus = async (next: "planned" | "completed" | "skipped") => {
-    if (!userId) return;
+    if (!userId) {
+      setErr("No user session found. Please log in again.");
+      return;
+    }
 
-    setLoading(true);
+    setSavingStatus(true);
     setErr(null);
 
     try {
@@ -117,42 +132,50 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
       } else {
         await resetPlanToPlannedByDate(userId, planDate);
       }
+
       await load();
     } catch (e: unknown) {
       setErr(getErrMsg(e, "Failed to update plan status"));
     } finally {
-      setLoading(false);
+      setSavingStatus(false);
     }
   };
 
-  // ✅ Start workout from THIS plan (sets workout_sessions.plan_id = planned_workouts.id)
   const onStartWorkout = async () => {
     if (!userId) {
       setErr("No user session found. Please log in again.");
       return;
     }
-    if (!plan?.id) return;
+
+    if (!plan?.id) {
+      setErr("No plan found for this day.");
+      return;
+    }
+
+    if (!canStartPlan) {
+      setErr("This plan cannot be started in its current state.");
+      return;
+    }
 
     setStarting(true);
     setErr(null);
 
     try {
       const active = await getActiveWorkoutSession(userId);
+
       if (active?.id) {
         onClose();
-        router.push({ pathname: "/workout/[id]", params: { id: active.id } });
+        router.push({ pathname: "/sessions/[id]", params: { id: active.id } });
         return;
       }
 
-      const created = await startWorkoutSession({
+      const created = await createWorkoutSessionFromPlan({
         userId,
-        planId: plan.id, // ✅ critical: links session → plan
-        title: plan.title ?? "Workout",
-        activityType: plan.activity_type ?? "lifting",
+        planId: plan.id,
       });
 
       onClose();
-      router.push({ pathname: "/workout/[id]", params: { id: created.id } });
+      router.push({ pathname: "/sessions/[id]", params: { id: created.id } });
     } catch (e: unknown) {
       console.log("PlanDayDrawer onStartWorkout error:", e);
       setErr(getErrMsg(e, "Failed to start workout"));
@@ -168,7 +191,10 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
 
         <View style={styles.sheet}>
           <View style={styles.headerRow}>
-            <Text style={styles.headerTitle}>{planDate}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.headerEyebrow}>Plan day</Text>
+              <Text style={styles.headerTitle}>{planDate}</Text>
+            </View>
 
             <Pressable onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>Close</Text>
@@ -200,9 +226,18 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
               <View style={styles.planCard}>
                 <Text style={styles.planTitle}>{title}</Text>
 
-                <Text style={styles.planMeta}>
-                  Status: {statusLabel(plan.status)}
-                </Text>
+                <View style={styles.metaPillRow}>
+                  <View style={styles.metaPill}>
+                    <Text style={styles.metaPillText}>
+                      {formatActivityType(plan.activity_type)}
+                    </Text>
+                  </View>
+                  <View style={styles.metaPill}>
+                    <Text style={styles.metaPillText}>
+                      {statusLabel(plan.status)}
+                    </Text>
+                  </View>
+                </View>
 
                 <Text style={styles.planMeta}>
                   Planned:{" "}
@@ -222,40 +257,53 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
                 )}
 
                 {!!plan.notes && (
-                  <Text style={styles.planMeta} numberOfLines={2}>
+                  <Text style={styles.planMeta} numberOfLines={3}>
                     Notes: {plan.notes}
                   </Text>
                 )}
               </View>
 
-              {/* ✅ Start workout from plan */}
               <View style={styles.row}>
                 <Pressable
                   onPress={onStartWorkout}
-                  disabled={starting}
+                  disabled={starting || !canStartPlan}
                   style={[
                     styles.primaryBtn,
-                    { flex: 1, marginTop: 0, opacity: starting ? 0.7 : 1 },
+                    styles.rowBtn,
+                    (starting || !canStartPlan) && styles.disabledBtn,
                   ]}
                 >
                   <Text style={styles.primaryBtnText}>
-                    {starting ? "Starting…" : "Start Workout"}
+                    {starting
+                      ? "Starting…"
+                      : plan.status === "planned"
+                      ? "Start Workout"
+                      : "Unavailable"}
                   </Text>
                 </Pressable>
               </View>
 
-              {/* Status quick actions */}
               <View style={styles.row}>
                 <Pressable
                   onPress={() => setStatus("completed")}
-                  style={[styles.statusBtn, styles.statusCompleted]}
+                  disabled={savingStatus}
+                  style={[
+                    styles.statusBtn,
+                    styles.statusCompleted,
+                    savingStatus && styles.disabledBtn,
+                  ]}
                 >
                   <Text style={styles.statusBtnText}>Mark Completed</Text>
                 </Pressable>
 
                 <Pressable
                   onPress={() => setStatus("skipped")}
-                  style={[styles.statusBtn, styles.statusSkipped]}
+                  disabled={savingStatus}
+                  style={[
+                    styles.statusBtn,
+                    styles.statusSkipped,
+                    savingStatus && styles.disabledBtn,
+                  ]}
                 >
                   <Text style={styles.statusBtnText}>Mark Skipped</Text>
                 </Pressable>
@@ -264,7 +312,12 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
               <View style={styles.row}>
                 <Pressable
                   onPress={() => setStatus("planned")}
-                  style={[styles.statusBtn, styles.statusReset]}
+                  disabled={savingStatus}
+                  style={[
+                    styles.statusBtn,
+                    styles.statusReset,
+                    savingStatus && styles.disabledBtn,
+                  ]}
                 >
                   <Text style={styles.statusBtnText}>Reset to Planned</Text>
                 </Pressable>
@@ -278,8 +331,14 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
                   <Text style={styles.secondaryBtnText}>Edit</Text>
                 </Pressable>
 
-                <Pressable onPress={onDelete} style={styles.dangerBtn}>
-                  <Text style={styles.dangerBtnText}>Delete</Text>
+                <Pressable
+                  onPress={onDelete}
+                  disabled={deleting}
+                  style={[styles.dangerBtn, deleting && styles.disabledBtn]}
+                >
+                  <Text style={styles.dangerBtnText}>
+                    {deleting ? "Deleting…" : "Delete"}
+                  </Text>
                 </Pressable>
               </View>
             </>
@@ -315,11 +374,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: 16,
+    padding: theme.spacing.lg,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    backgroundColor: "#111",
-    minHeight: 300,
+    backgroundColor: theme.colors.surface,
+    minHeight: 320,
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
   },
 
   headerRow: {
@@ -328,36 +389,95 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  headerEyebrow: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
+  headerTitle: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.lg,
+    fontWeight: "900",
+    marginTop: 4,
+  },
 
   closeBtn: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  closeBtnText: { color: "#fff", fontWeight: "700" },
+  closeBtnText: { color: theme.colors.text, fontWeight: "800" },
 
-  mutedText: { color: "#aaa", marginTop: 12 },
+  mutedText: {
+    color: theme.colors.textMuted,
+    marginTop: 12,
+    fontWeight: "700",
+  },
 
-  errorText: { color: "#ff6b6b", marginTop: 12, fontWeight: "700" },
+  errorText: {
+    color: "#ff6b6b",
+    marginTop: 12,
+    fontWeight: "800",
+  },
 
   primaryBtn: {
     marginTop: 16,
     padding: 14,
     borderRadius: 12,
-    backgroundColor: "#2563eb",
+    backgroundColor: theme.colors.accent,
   },
-  primaryBtnText: { color: "#fff", textAlign: "center", fontWeight: "700" },
+  primaryBtnText: {
+    color: theme.colors.text,
+    textAlign: "center",
+    fontWeight: "800",
+  },
+
+  rowBtn: {
+    flex: 1,
+    marginTop: 0,
+  },
 
   planCard: {
     marginTop: 12,
     padding: 14,
     borderRadius: 14,
-    backgroundColor: "#1b1b1b",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  planTitle: { color: "#fff", fontWeight: "700" },
-  planMeta: { color: "#bbb", marginTop: 6 },
+  planTitle: {
+    color: theme.colors.text,
+    fontWeight: "900",
+    fontSize: theme.font.size.md,
+  },
+  planMeta: {
+    color: theme.colors.textMuted,
+    marginTop: 6,
+    fontWeight: "700",
+  },
+
+  metaPillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  metaPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  metaPillText: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
 
   row: { flexDirection: "row", gap: 10, marginTop: 12 },
 
@@ -365,9 +485,15 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 12,
     borderRadius: 12,
-    backgroundColor: "#333",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  secondaryBtnText: { color: "#fff", textAlign: "center", fontWeight: "700" },
+  secondaryBtnText: {
+    color: theme.colors.text,
+    textAlign: "center",
+    fontWeight: "800",
+  },
 
   dangerBtn: {
     flex: 1,
@@ -375,7 +501,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#7f1d1d",
   },
-  dangerBtnText: { color: "#fff", textAlign: "center", fontWeight: "700" },
+  dangerBtnText: {
+    color: "#fff",
+    textAlign: "center",
+    fontWeight: "800",
+  },
 
   statusBtn: {
     flex: 1,
@@ -389,4 +519,8 @@ const styles = StyleSheet.create({
   statusCompleted: { backgroundColor: "#166534" },
   statusSkipped: { backgroundColor: "#7f1d1d" },
   statusReset: { backgroundColor: "#334155" },
+
+  disabledBtn: {
+    opacity: 0.6,
+  },
 });

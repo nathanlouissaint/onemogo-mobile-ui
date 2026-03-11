@@ -4,6 +4,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -32,9 +33,8 @@ import {
 import { useSession } from "../../src/session/SessionContext";
 
 function formatActivityType(v?: string | null) {
-  if (!v) return "—";
-  const s = String(v).trim();
-  if (!s) return "—";
+  const s = String(v ?? "").trim();
+  if (!s) return "Workout";
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -126,7 +126,21 @@ function buildPrescriptionLabel(item: WorkoutSessionDetailItem) {
     parts.push(`RPE ${item.prescribed_rpe}`);
   }
 
-  return parts.length ? parts.join(" • ") : "No prescription";
+  return parts.length ? parts.join(" • ") : "No target set";
+}
+
+function getExerciseStatus(item: WorkoutSessionDetailItem) {
+  if (item.is_completed || item.sets.length > 0) {
+    return {
+      label: "In Progress",
+      tone: "progress" as const,
+    };
+  }
+
+  return {
+    label: "Not Started",
+    tone: "pending" as const,
+  };
 }
 
 function getSessionProgress(detail: WorkoutSessionDetail | null) {
@@ -137,6 +151,8 @@ function getSessionProgress(detail: WorkoutSessionDetail | null) {
       totalLoggedSets: 0,
       plannedSets: 0,
       hasAnyLoggedWork: false,
+      exerciseProgressPct: 0,
+      setProgressPct: 0,
     };
   }
 
@@ -153,12 +169,26 @@ function getSessionProgress(detail: WorkoutSessionDetail | null) {
     0
   );
 
+  const exerciseProgressPct =
+    totalExercises > 0
+      ? Math.min(100, Math.round((completedExercises / totalExercises) * 100))
+      : 0;
+
+  const setProgressPct =
+    plannedSets > 0
+      ? Math.min(100, Math.round((totalLoggedSets / plannedSets) * 100))
+      : totalLoggedSets > 0
+      ? 100
+      : 0;
+
   return {
     totalExercises,
     completedExercises,
     totalLoggedSets,
     plannedSets,
     hasAnyLoggedWork: totalLoggedSets > 0,
+    exerciseProgressPct,
+    setProgressPct,
   };
 }
 
@@ -188,6 +218,7 @@ export default function WorkoutSessionDetailScreen() {
   const [deletingSetId, setDeletingSetId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorkoutSessionDetail | null>(null);
+  const [showSessionDetails, setShowSessionDetails] = useState(false);
 
   const [activeAddItemId, setActiveAddItemId] = useState<string | null>(null);
   const [editingSetId, setEditingSetId] = useState<string | null>(null);
@@ -271,13 +302,13 @@ export default function WorkoutSessionDetailScreen() {
 
     if (session.ended_at && typeof session.duration_min !== "number") {
       warnings.push(
-        "Completed session is missing a persisted duration_min value."
+        "Completed session is missing a saved duration."
       );
     }
 
     if (progress.totalExercises === 0) {
       warnings.push(
-        "This session has no workout_session_items yet. The exercise layer has not been populated."
+        "No exercises were loaded into this session."
       );
     }
 
@@ -290,7 +321,7 @@ export default function WorkoutSessionDetailScreen() {
     if (!progress.hasAnyLoggedWork) {
       Alert.alert(
         "No logged work yet",
-        "Log at least one set before completing this session."
+        "Log at least one set before completing this workout."
       );
       return;
     }
@@ -311,8 +342,8 @@ export default function WorkoutSessionDetailScreen() {
       clearInlineForms();
 
       Alert.alert(
-        "Session completed",
-        "The session was completed and reloaded from the latest saved data."
+        "Workout completed",
+        "Your session was saved successfully."
       );
     } catch (e: unknown) {
       setErr(getErrMsg(e, "Failed to complete session."));
@@ -328,12 +359,26 @@ export default function WorkoutSessionDetailScreen() {
   ]);
 
   const onOpenAddSet = useCallback(
-    (itemId: string) => {
+    (item: WorkoutSessionDetailItem) => {
       setEditingSetId(null);
-      setActiveAddItemId(itemId);
-      resetFormFields();
+      setActiveAddItemId(item.id);
+      setRepsInput(
+        typeof item.prescribed_reps === "number"
+          ? String(item.prescribed_reps)
+          : ""
+      );
+      setWeightInput(
+        typeof item.prescribed_weight_kg === "number"
+          ? String(item.prescribed_weight_kg)
+          : ""
+      );
+      setRpeInput(
+        typeof item.prescribed_rpe === "number"
+          ? String(item.prescribed_rpe)
+          : ""
+      );
     },
-    [resetFormFields]
+    []
   );
 
   const onOpenEditSet = useCallback((set: WorkoutSessionSet) => {
@@ -360,7 +405,7 @@ export default function WorkoutSessionDetailScreen() {
 
         if (reps === null && weightKg === null && rpe === null) {
           throw new Error(
-            "Enter at least one set value. Reps, weight, or RPE cannot all be blank."
+            "Enter at least one value. Reps, weight, or RPE cannot all be blank."
           );
         }
 
@@ -405,7 +450,7 @@ export default function WorkoutSessionDetailScreen() {
 
         if (reps === null && weightKg === null && rpe === null) {
           throw new Error(
-            "Enter at least one set value. Reps, weight, or RPE cannot all be blank."
+            "Enter at least one value. Reps, weight, or RPE cannot all be blank."
           );
         }
 
@@ -474,10 +519,6 @@ export default function WorkoutSessionDetailScreen() {
     (session?.title && String(session.title).trim()) || "Workout Session";
 
   const statusLabel = session?.ended_at ? "Completed" : "Active";
-  const planIdLabel = session?.plan_id ? String(session.plan_id) : "None";
-  const templateIdLabel = session?.template_id
-    ? String(session.template_id)
-    : "None";
 
   return (
     <Screen>
@@ -486,14 +527,32 @@ export default function WorkoutSessionDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
+          <View style={styles.headerTopRow}>
+            <Pressable onPress={() => router.back()} style={styles.backChip}>
+              <Text style={styles.backChipText}>Back</Text>
+            </Pressable>
+
+            <View
+              style={[
+                styles.statusChip,
+                session?.ended_at ? styles.statusChipComplete : styles.statusChipActive,
+              ]}
+            >
+              <Text style={styles.statusChipText}>{statusLabel}</Text>
+            </View>
+          </View>
+
           <Text style={styles.kicker}>Session</Text>
           <Text style={styles.title} numberOfLines={2}>
             {loading ? "Loading..." : title}
           </Text>
           <Text style={styles.sub}>
             {loading
-              ? "Loading session..."
-              : `${formatActivityType(session?.activity_type)} • ${statusLabel}`}
+              ? "Loading workout..."
+              : `${formatActivityType(session?.activity_type)} • ${formatDurationMin(
+                  session?.duration_min,
+                  session?.started_at
+                )}`}
           </Text>
         </View>
 
@@ -501,7 +560,7 @@ export default function WorkoutSessionDetailScreen() {
           <Card>
             <View style={styles.center}>
               <ActivityIndicator />
-              <Text style={styles.meta}>Loading session…</Text>
+              <Text style={styles.meta}>Loading workout…</Text>
             </View>
           </Card>
         ) : err ? (
@@ -517,7 +576,7 @@ export default function WorkoutSessionDetailScreen() {
           <>
             {integrityWarnings.length ? (
               <Card style={{ marginBottom: theme.spacing.md }}>
-                <Text style={styles.warningTitle}>Integrity Warnings</Text>
+                <Text style={styles.warningTitle}>Needs attention</Text>
                 <View style={styles.warningList}>
                   {integrityWarnings.map((warning) => (
                     <Text key={warning} style={styles.warningText}>
@@ -529,189 +588,193 @@ export default function WorkoutSessionDetailScreen() {
             ) : null}
 
             <Card style={{ marginBottom: theme.spacing.md }}>
-              <Text style={styles.section}>Overview</Text>
-
-              <View style={styles.metaStack}>
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Session ID</Text>
-                  <Text style={styles.metaValue}>{session.id}</Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Activity</Text>
-                  <Text style={styles.metaValue}>
-                    {formatActivityType(session.activity_type)}
-                  </Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Status</Text>
-                  <Text
-                    style={[
-                      styles.metaValue,
-                      session.ended_at ? styles.completeText : styles.activeText,
-                    ]}
-                  >
-                    {statusLabel}
-                  </Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Started</Text>
-                  <Text style={styles.metaValue}>
-                    {formatDateTime(session.started_at ?? session.created_at)}
-                  </Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Ended</Text>
-                  <Text style={styles.metaValue}>
-                    {formatDateTime(session.ended_at)}
-                  </Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Duration</Text>
-                  <Text style={styles.metaValue}>
-                    {formatDurationMin(session.duration_min, session.started_at)}
-                  </Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Plan ID</Text>
-                  <Text style={styles.metaValue}>{planIdLabel}</Text>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Template ID</Text>
-                  <Text style={styles.metaValue}>{templateIdLabel}</Text>
-                </View>
-              </View>
-            </Card>
-
-            <Card style={{ marginBottom: theme.spacing.md }}>
               <Text style={styles.section}>Progress</Text>
 
-              <View style={styles.metaStack}>
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Exercises</Text>
-                  <Text style={styles.metaValue}>
+              <View style={styles.progressHero}>
+                <View style={styles.progressMetricCard}>
+                  <Text style={styles.progressMetricValue}>
                     {progress.completedExercises}/{progress.totalExercises}
                   </Text>
+                  <Text style={styles.progressMetricLabel}>Exercises</Text>
                 </View>
 
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Sets</Text>
-                  <Text style={styles.metaValue}>
+                <View style={styles.progressMetricCard}>
+                  <Text style={styles.progressMetricValue}>
                     {progress.plannedSets > 0
                       ? `${progress.totalLoggedSets}/${progress.plannedSets}`
-                      : `${progress.totalLoggedSets} logged`}
+                      : `${progress.totalLoggedSets}`}
                   </Text>
+                  <Text style={styles.progressMetricLabel}>Sets</Text>
                 </View>
               </View>
 
-              <Text style={styles.meta}>
-                This is now the real session read layer: exercise blocks and
-                logged sets are loaded directly from the session detail model.
-              </Text>
+              <View style={styles.progressBlock}>
+                <View style={styles.progressHeaderRow}>
+                  <Text style={styles.progressLabel}>Exercise progress</Text>
+                  <Text style={styles.progressPct}>
+                    {progress.exerciseProgressPct}%
+                  </Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${progress.exerciseProgressPct}%` },
+                    ]}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.progressBlock}>
+                <View style={styles.progressHeaderRow}>
+                  <Text style={styles.progressLabel}>Set progress</Text>
+                  <Text style={styles.progressPct}>
+                    {progress.setProgressPct}%
+                  </Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFillSecondary,
+                      { width: `${progress.setProgressPct}%` },
+                    ]}
+                  />
+                </View>
+              </View>
             </Card>
 
             <Card style={{ marginBottom: theme.spacing.md }}>
-              <Text style={styles.section}>Exercises</Text>
+              <View style={styles.sectionRow}>
+                <Text style={styles.section}>Exercises</Text>
+                <Text style={styles.sectionMeta}>
+                  {detail?.items.length ?? 0} total
+                </Text>
+              </View>
 
               <View style={styles.exerciseList}>
                 {detail?.items.length ? (
                   detail.items.map((item, index) => {
                     const isAddOpen = activeAddItemId === item.id;
+                    const status = getExerciseStatus(item);
+                    const latestSet =
+                      item.sets.length > 0 ? item.sets[item.sets.length - 1] : null;
 
                     return (
                       <View key={item.id} style={styles.exerciseCard}>
                         <View style={styles.exerciseHeader}>
-                          <Text style={styles.exerciseIndex}>{index + 1}</Text>
+                          <View style={styles.exerciseIndexWrap}>
+                            <Text style={styles.exerciseIndex}>{index + 1}</Text>
+                          </View>
+
                           <View style={styles.exerciseHeaderText}>
-                            <Text style={styles.exerciseName}>
-                              {item.exercise_name}
-                            </Text>
+                            <View style={styles.exerciseTitleRow}>
+                              <Text style={styles.exerciseName}>
+                                {item.exercise_name}
+                              </Text>
+
+                              <View
+                                style={[
+                                  styles.exerciseStatusChip,
+                                  status.tone === "progress"
+                                    ? styles.exerciseStatusChipProgress
+                                    : styles.exerciseStatusChipPending,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.exerciseStatusChipText,
+                                    status.tone === "progress"
+                                      ? styles.exerciseStatusChipTextProgress
+                                      : styles.exerciseStatusChipTextPending,
+                                  ]}
+                                >
+                                  {status.label}
+                                </Text>
+                              </View>
+                            </View>
+
                             <Text style={styles.exercisePrescription}>
                               {buildPrescriptionLabel(item)}
                             </Text>
                           </View>
-                          <Text
-                            style={[
-                              styles.exerciseStatus,
-                              item.is_completed || item.sets.length > 0
-                                ? styles.completeText
-                                : styles.pendingText,
-                            ]}
-                          >
-                            {item.is_completed || item.sets.length > 0
-                              ? "In Progress"
-                              : "Not Started"}
-                          </Text>
                         </View>
 
                         {item.notes ? (
                           <Text style={styles.exerciseNotes}>{item.notes}</Text>
                         ) : null}
 
+                        {latestSet ? (
+                          <View style={styles.latestSetCard}>
+                            <Text style={styles.latestSetLabel}>Latest set</Text>
+                            <Text style={styles.latestSetValue}>
+                              {formatSetValue(latestSet)}
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text style={styles.emptySetText}>No sets logged yet.</Text>
+                        )}
+
                         <View style={styles.setList}>
-                          {item.sets.length ? (
-                            item.sets.map((set) => {
-                              const isEditingThisSet = editingSetId === set.id;
-                              const isDeletingThisSet = deletingSetId === set.id;
+                          {item.sets.map((set) => {
+                            const isEditingThisSet = editingSetId === set.id;
+                            const isDeletingThisSet = deletingSetId === set.id;
 
-                              return (
-                                <View key={set.id} style={styles.setRow}>
-                                  {isEditingThisSet ? (
-                                    <View style={styles.editSetCard}>
-                                      <Text style={styles.addSetTitle}>
-                                        Edit Set {set.set_index}
-                                      </Text>
+                            return (
+                              <View key={set.id} style={styles.setRow}>
+                                {isEditingThisSet ? (
+                                  <View style={styles.inlineFormCard}>
+                                    <Text style={styles.inlineFormTitle}>
+                                      Edit Set {set.set_index}
+                                    </Text>
 
-                                      <TextInput
-                                        value={repsInput}
-                                        onChangeText={setRepsInput}
-                                        placeholder="Reps"
-                                        placeholderTextColor={theme.colors.textFaint}
-                                        keyboardType="numeric"
-                                        style={styles.input}
-                                      />
+                                    <Text style={styles.inputLabel}>Reps</Text>
+                                    <TextInput
+                                      value={repsInput}
+                                      onChangeText={setRepsInput}
+                                      placeholder="e.g. 10"
+                                      placeholderTextColor={theme.colors.textFaint}
+                                      keyboardType="numeric"
+                                      style={styles.input}
+                                    />
 
-                                      <TextInput
-                                        value={weightInput}
-                                        onChangeText={setWeightInput}
-                                        placeholder="Weight (kg)"
-                                        placeholderTextColor={theme.colors.textFaint}
-                                        keyboardType="decimal-pad"
-                                        style={styles.input}
-                                      />
+                                    <Text style={styles.inputLabel}>Weight (kg)</Text>
+                                    <TextInput
+                                      value={weightInput}
+                                      onChangeText={setWeightInput}
+                                      placeholder="e.g. 60"
+                                      placeholderTextColor={theme.colors.textFaint}
+                                      keyboardType="decimal-pad"
+                                      style={styles.input}
+                                    />
 
-                                      <TextInput
-                                        value={rpeInput}
-                                        onChangeText={setRpeInput}
-                                        placeholder="RPE (1-10)"
-                                        placeholderTextColor={theme.colors.textFaint}
-                                        keyboardType="numeric"
-                                        style={styles.input}
-                                      />
+                                    <Text style={styles.inputLabel}>RPE</Text>
+                                    <TextInput
+                                      value={rpeInput}
+                                      onChangeText={setRpeInput}
+                                      placeholder="1–10"
+                                      placeholderTextColor={theme.colors.textFaint}
+                                      keyboardType="numeric"
+                                      style={styles.input}
+                                    />
 
-                                      <View style={styles.addSetActions}>
-                                        <View style={styles.addSetActionButton}>
-                                          <PrimaryButton
-                                            label={editingSet ? "Saving..." : "Save Changes"}
-                                            onPress={() => onSubmitEditSet(set)}
-                                          />
-                                        </View>
-                                        <View style={styles.addSetActionButton}>
-                                          <PrimaryButton
-                                            label="Cancel"
-                                            onPress={resetEditSetForm}
-                                          />
-                                        </View>
+                                    <View style={styles.inlineFormActions}>
+                                      <View style={styles.inlineFormActionButton}>
+                                        <PrimaryButton
+                                          label={editingSet ? "Saving..." : "Save"}
+                                          onPress={() => onSubmitEditSet(set)}
+                                        />
+                                      </View>
+                                      <View style={styles.inlineFormActionButton}>
+                                        <PrimaryButton
+                                          label="Cancel"
+                                          onPress={resetEditSetForm}
+                                        />
                                       </View>
                                     </View>
-                                  ) : (
-                                    <>
+                                  </View>
+                                ) : (
+                                  <>
+                                    <View style={styles.setRowTop}>
                                       <View>
                                         <Text style={styles.setTitle}>
                                           Set {set.set_index}
@@ -727,80 +790,80 @@ export default function WorkoutSessionDetailScreen() {
                                       <Text style={styles.setTimestamp}>
                                         {formatDateTime(set.completed_at)}
                                       </Text>
+                                    </View>
 
-                                      {!session.ended_at ? (
-                                        <View style={styles.setActions}>
-                                          <View style={styles.setActionButton}>
-                                            <PrimaryButton
-                                              label="Edit"
-                                              onPress={() => onOpenEditSet(set)}
-                                            />
-                                          </View>
-                                          <View style={styles.setActionButton}>
-                                            <PrimaryButton
-                                              label={
-                                                isDeletingThisSet ? "Deleting..." : "Delete"
-                                              }
-                                              onPress={() => onDeleteSet(set)}
-                                            />
-                                          </View>
-                                        </View>
-                                      ) : null}
-                                    </>
-                                  )}
-                                </View>
-                              );
-                            })
-                          ) : (
-                            <Text style={styles.emptySetText}>
-                              No sets logged yet.
-                            </Text>
-                          )}
+                                    {!session.ended_at ? (
+                                      <View style={styles.setActions}>
+                                        <Pressable
+                                          onPress={() => onOpenEditSet(set)}
+                                          style={styles.textAction}
+                                        >
+                                          <Text style={styles.textActionEdit}>
+                                            Edit
+                                          </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                          onPress={() => onDeleteSet(set)}
+                                          style={styles.textAction}
+                                        >
+                                          <Text style={styles.textActionDelete}>
+                                            {isDeletingThisSet ? "Deleting..." : "Delete"}
+                                          </Text>
+                                        </Pressable>
+                                      </View>
+                                    ) : null}
+                                  </>
+                                )}
+                              </View>
+                            );
+                          })}
                         </View>
 
                         {!session.ended_at ? (
                           <View style={{ marginTop: theme.spacing.md }}>
                             {isAddOpen ? (
-                              <View style={styles.addSetCard}>
-                                <Text style={styles.addSetTitle}>
-                                  Add Set
-                                </Text>
+                              <View style={styles.inlineFormCard}>
+                                <Text style={styles.inlineFormTitle}>Log Set</Text>
 
+                                <Text style={styles.inputLabel}>Reps</Text>
                                 <TextInput
                                   value={repsInput}
                                   onChangeText={setRepsInput}
-                                  placeholder="Reps"
+                                  placeholder="e.g. 10"
                                   placeholderTextColor={theme.colors.textFaint}
                                   keyboardType="numeric"
                                   style={styles.input}
                                 />
 
+                                <Text style={styles.inputLabel}>Weight (kg)</Text>
                                 <TextInput
                                   value={weightInput}
                                   onChangeText={setWeightInput}
-                                  placeholder="Weight (kg)"
+                                  placeholder="e.g. 60"
                                   placeholderTextColor={theme.colors.textFaint}
                                   keyboardType="decimal-pad"
                                   style={styles.input}
                                 />
 
+                                <Text style={styles.inputLabel}>RPE</Text>
                                 <TextInput
                                   value={rpeInput}
                                   onChangeText={setRpeInput}
-                                  placeholder="RPE (1-10)"
+                                  placeholder="1–10"
                                   placeholderTextColor={theme.colors.textFaint}
                                   keyboardType="numeric"
                                   style={styles.input}
                                 />
 
-                                <View style={styles.addSetActions}>
-                                  <View style={styles.addSetActionButton}>
+                                <View style={styles.inlineFormActions}>
+                                  <View style={styles.inlineFormActionButton}>
                                     <PrimaryButton
                                       label={addingSet ? "Saving..." : "Save Set"}
                                       onPress={() => onSubmitAddSet(item)}
                                     />
                                   </View>
-                                  <View style={styles.addSetActionButton}>
+                                  <View style={styles.inlineFormActionButton}>
                                     <PrimaryButton
                                       label="Cancel"
                                       onPress={resetAddSetForm}
@@ -810,8 +873,8 @@ export default function WorkoutSessionDetailScreen() {
                               </View>
                             ) : (
                               <PrimaryButton
-                                label="Add Set"
-                                onPress={() => onOpenAddSet(item.id)}
+                                label="Log Set"
+                                onPress={() => onOpenAddSet(item)}
                               />
                             )}
                           </View>
@@ -827,29 +890,91 @@ export default function WorkoutSessionDetailScreen() {
               </View>
             </Card>
 
-            <Card>
-              <Text style={styles.section}>Actions</Text>
+            <Card style={{ marginBottom: theme.spacing.md }}>
+              <Pressable
+                onPress={() => setShowSessionDetails((v) => !v)}
+                style={styles.sectionRow}
+              >
+                <Text style={styles.section}>Session details</Text>
+                <Text style={styles.sectionMeta}>
+                  {showSessionDetails ? "Hide" : "Show"}
+                </Text>
+              </Pressable>
 
-              <View style={{ marginTop: theme.spacing.lg }}>
-                {!session.ended_at ? (
-                  <>
-                    <PrimaryButton
-                      label={completing ? "Completing..." : "Complete Session"}
-                      onPress={onCompleteSession}
-                    />
-                    <View style={{ height: 12 }} />
-                  </>
-                ) : null}
+              {showSessionDetails ? (
+                <View style={styles.metaStack}>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>Activity</Text>
+                    <Text style={styles.metaValue}>
+                      {formatActivityType(session.activity_type)}
+                    </Text>
+                  </View>
 
-                <PrimaryButton label="Refresh" onPress={loadSession} />
-                <View style={{ height: 12 }} />
-                <PrimaryButton label="Back" onPress={() => router.back()} />
-              </View>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>Started</Text>
+                    <Text style={styles.metaValue}>
+                      {formatDateTime(session.started_at ?? session.created_at)}
+                    </Text>
+                  </View>
 
-              <Text style={styles.meta}>
-                Completion is now blocked until at least one set is logged.
-              </Text>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>Ended</Text>
+                    <Text style={styles.metaValue}>
+                      {formatDateTime(session.ended_at)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>Duration</Text>
+                    <Text style={styles.metaValue}>
+                      {formatDurationMin(session.duration_min, session.started_at)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>Plan ID</Text>
+                    <Text style={styles.metaValue}>
+                      {session.plan_id ? String(session.plan_id) : "None"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>Template ID</Text>
+                    <Text style={styles.metaValue}>
+                      {session.template_id ? String(session.template_id) : "None"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>Session ID</Text>
+                    <Text style={styles.metaValue}>{session.id}</Text>
+                  </View>
+                </View>
+              ) : null}
             </Card>
+
+            {!session.ended_at ? (
+              <Card>
+                <Text style={styles.section}>Finish workout</Text>
+                <Text style={styles.meta}>
+                  Complete this session after you have logged your working sets.
+                </Text>
+
+                <View style={{ marginTop: theme.spacing.lg }}>
+                  <PrimaryButton
+                    label={completing ? "Completing..." : "Complete Workout"}
+                    onPress={onCompleteSession}
+                  />
+                </View>
+              </Card>
+            ) : (
+              <Card>
+                <Text style={styles.section}>Workout complete</Text>
+                <Text style={styles.meta}>
+                  This session has been completed and is now read-only.
+                </Text>
+              </Card>
+            )}
           </>
         ) : (
           <Card>
@@ -868,10 +993,52 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: 28 },
 
   header: { marginBottom: theme.spacing.lg },
+  headerTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  backChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+  },
+  backChipText: {
+    color: theme.colors.text,
+    fontWeight: "800",
+    fontSize: theme.font.size.sm,
+  },
+
+  statusChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  statusChipActive: {
+    backgroundColor: "rgba(125, 211, 252, 0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(125, 211, 252, 0.35)",
+  },
+  statusChipComplete: {
+    backgroundColor: "rgba(52, 211, 153, 0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(52, 211, 153, 0.35)",
+  },
+  statusChipText: {
+    color: theme.colors.text,
+    fontWeight: "900",
+    fontSize: theme.font.size.xs,
+  },
+
   kicker: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
-    fontWeight: "700",
+    fontWeight: "800",
+    marginTop: 16,
   },
   title: {
     color: theme.colors.text,
@@ -894,14 +1061,84 @@ const styles = StyleSheet.create({
   section: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
+    fontWeight: "900",
+  },
+  sectionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sectionMeta: {
+    color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
     fontWeight: "800",
+  },
+
+  progressHero: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: theme.spacing.md,
+  },
+  progressMetricCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    borderRadius: 16,
+    padding: theme.spacing.md,
+  },
+  progressMetricValue: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.xl,
+    fontWeight: "900",
+  },
+  progressMetricLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+    marginTop: 6,
+  },
+
+  progressBlock: {
+    marginTop: theme.spacing.md,
+  },
+  progressHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  progressLabel: {
+    color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
+  progressPct: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.sm,
+    fontWeight: "900",
+  },
+  progressTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface2,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#34d399",
+  },
+  progressFillSecondary: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#7dd3fc",
   },
 
   metaStack: {
     marginTop: theme.spacing.md,
     gap: 12,
   },
-
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -910,31 +1147,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
-
   metaLabel: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
-
   metaValue: {
     color: theme.colors.text,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
     flexShrink: 1,
     textAlign: "right",
-  },
-
-  activeText: {
-    color: "#7dd3fc",
-  },
-
-  completeText: {
-    color: "#34d399",
-  },
-
-  pendingText: {
-    color: theme.colors.textMuted,
   },
 
   meta: {
@@ -954,12 +1177,10 @@ const styles = StyleSheet.create({
     fontSize: theme.font.size.sm,
     fontWeight: "900",
   },
-
   warningList: {
     marginTop: theme.spacing.md,
     gap: 8,
   },
-
   warningText: {
     color: "#fbbf24",
     fontSize: theme.font.size.sm,
@@ -970,49 +1191,75 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
     gap: theme.spacing.md,
   },
-
   exerciseCard: {
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: theme.spacing.md,
     backgroundColor: theme.colors.card,
   },
-
   exerciseHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
   },
-
+  exerciseIndexWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
   exerciseIndex: {
     color: theme.colors.text,
     fontSize: theme.font.size.sm,
     fontWeight: "900",
-    minWidth: 18,
   },
-
   exerciseHeaderText: {
     flex: 1,
-    gap: 4,
+    gap: 6,
   },
-
+  exerciseTitleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+  },
   exerciseName: {
     color: theme.colors.text,
     fontSize: theme.font.size.md,
     fontWeight: "900",
+    flex: 1,
   },
-
   exercisePrescription: {
     color: theme.colors.textMuted,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
 
-  exerciseStatus: {
+  exerciseStatusChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  exerciseStatusChipProgress: {
+    backgroundColor: "rgba(52, 211, 153, 0.14)",
+  },
+  exerciseStatusChipPending: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  exerciseStatusChipText: {
     fontSize: theme.font.size.xs,
     fontWeight: "900",
-    textAlign: "right",
+  },
+  exerciseStatusChipTextProgress: {
+    color: "#34d399",
+  },
+  exerciseStatusChipTextPending: {
+    color: theme.colors.textMuted,
   },
 
   exerciseNotes: {
@@ -1022,74 +1269,105 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.sm,
   },
 
+  latestSetCard: {
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.sm,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surface2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  latestSetLabel: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.xs,
+    fontWeight: "800",
+  },
+  latestSetValue: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+
   setList: {
     marginTop: theme.spacing.md,
     gap: 10,
   },
-
   setRow: {
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
     paddingTop: 10,
-    gap: 6,
+    gap: 8,
   },
-
+  setRowTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+  },
   setTitle: {
     color: theme.colors.text,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
-
   setValue: {
     color: theme.colors.textMuted,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
     marginTop: 2,
   },
-
   setTimestamp: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.xs,
     fontWeight: "700",
-    marginTop: 4,
+    textAlign: "right",
+    maxWidth: 120,
   },
 
   setActions: {
     flexDirection: "row",
-    gap: 12,
-    marginTop: 4,
+    gap: 18,
   },
-
-  setActionButton: {
-    flex: 1,
+  textAction: {
+    paddingVertical: 4,
+  },
+  textActionEdit: {
+    color: "#7dd3fc",
+    fontWeight: "900",
+    fontSize: theme.font.size.sm,
+  },
+  textActionDelete: {
+    color: "#ff6b6b",
+    fontWeight: "900",
+    fontSize: theme.font.size.sm,
   },
 
   emptySetText: {
     color: theme.colors.textMuted,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
+    marginTop: theme.spacing.md,
   },
 
-  addSetCard: {
+  inlineFormCard: {
     marginTop: 4,
     gap: 10,
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: 14,
     padding: theme.spacing.md,
-    backgroundColor: theme.colors.card,
+    backgroundColor: theme.colors.surface2,
   },
-
-  editSetCard: {
-    gap: 10,
-  },
-
-  addSetTitle: {
+  inlineFormTitle: {
     color: theme.colors.text,
     fontSize: theme.font.size.sm,
     fontWeight: "900",
   },
-
+  inputLabel: {
+    color: theme.colors.textFaint,
+    fontSize: theme.font.size.xs,
+    fontWeight: "800",
+  },
   input: {
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -1101,13 +1379,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     backgroundColor: "transparent",
   },
-
-  addSetActions: {
+  inlineFormActions: {
     flexDirection: "row",
     gap: 12,
+    marginTop: 4,
   },
-
-  addSetActionButton: {
+  inlineFormActionButton: {
     flex: 1,
   },
 });

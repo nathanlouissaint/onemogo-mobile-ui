@@ -1,28 +1,49 @@
 import React from "react";
-import { View, StyleSheet, ViewStyle } from "react-native";
+import { View, StyleSheet, ViewStyle, StyleProp } from "react-native";
 import { theme } from "../constants/theme";
+
+type CardVariant = "default" | "subtle" | "elevated";
+
+type Props = {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  variant?: CardVariant;
+};
 
 export function Card({
   children,
   style,
-}: {
-  children: React.ReactNode;
-  style?: ViewStyle;
-}) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  variant = "default",
+}: Props) {
+  const variantStyle =
+    variant === "subtle"
+      ? styles.subtle
+      : variant === "elevated"
+      ? styles.elevated
+      : styles.default;
+
+  return <View style={[styles.base, variantStyle, style]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
+  base: {
+    borderRadius: theme.components.cardRadius,
+    padding: theme.layout.cardPadding,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    backgroundColor: theme.colors.surface,
+  },
+
+  default: {},
+
+  subtle: {
+    backgroundColor: theme.colors.surface2,
+    borderColor: theme.colors.borderSubtle,
+  },
+
+  elevated: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    ...theme.shadows.card,
   },
 });

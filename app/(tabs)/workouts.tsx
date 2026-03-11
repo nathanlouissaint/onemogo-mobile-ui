@@ -21,7 +21,9 @@ import {
   getActiveWorkoutSession,
 } from "../../src/lib/workouts";
 import type { WorkoutSession } from "../../src/lib/workouts";
+import { createWorkoutSessionFromTemplate } from "../../src/lib/workouts.mutations";
 
+import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/session/SessionContext";
 
 type ActivityOption = {
@@ -30,11 +32,18 @@ type ActivityOption = {
 };
 
 const ACTIVITY_OPTIONS: ActivityOption[] = [
-  { key: "lifting", label: "Lifting" },
-  { key: "swimming", label: "Swimming" },
-  { key: "boxing", label: "Boxing" },
-  { key: "running", label: "Running" },
+  { key: "strength", label: "Strength" },
+  { key: "cardio", label: "Cardio" },
+  { key: "mobility", label: "Mobility" },
+  { key: "recovery", label: "Recovery" },
 ];
+
+type WorkoutTemplate = {
+  id: string;
+  title: string | null;
+  activity_type: string | null;
+  created_at?: string;
+};
 
 function formatDate(v?: string | null) {
   if (!v) return "—";
@@ -43,17 +52,32 @@ function formatDate(v?: string | null) {
   return d.toLocaleString();
 }
 
+function normalizeActivityType(v?: string | null) {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return "strength";
+  if (s === "lifting") return "strength";
+  if (s === "run" || s === "running") return "cardio";
+  return s;
+}
+
 export default function WorkoutsScreen() {
   const { user, loading: sessionLoading } = useSession();
   const userId = user?.id;
 
   const [loading, setLoading] = useState(true);
+  const [startingGeneric, setStartingGeneric] = useState(false);
+  const [startingTemplateId, setStartingTemplateId] = useState<string | null>(
+    null
+  );
   const [err, setErr] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
 
-  const [selectedActivity, setSelectedActivity] = useState<string>("lifting");
+  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
+  const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
+
+  const [selectedActivity, setSelectedActivity] = useState<string>("strength");
 
   const hasSessions = sessions.length > 0;
+  const hasTemplates = templates.length > 0;
 
   const load = async () => {
     if (sessionLoading) return;
@@ -66,36 +90,59 @@ export default function WorkoutsScreen() {
 
     setLoading(true);
     setErr(null);
+
     try {
-      const data = await listWorkoutSessions(userId);
-      setSessions(data || []);
-    } catch (e: any) {
-      const msg = e?.message ?? "Failed to load workout sessions";
+      const [sessionData, templateRes] = await Promise.all([
+        listWorkoutSessions(userId),
+        supabase
+          .from("workout_templates")
+          .select("id, title, activity_type, created_at")
+          .order("created_at", { ascending: false }),
+      ]);
+
+      setSessions(sessionData || []);
+
+      if (templateRes.error) throw templateRes.error;
+      setTemplates((templateRes.data || []) as WorkoutTemplate[]);
+    } catch (e: unknown) {
+      const anyErr = e as { message?: string };
+      const msg = anyErr?.message ?? "Failed to load workouts";
       setErr(String(msg));
     } finally {
       setLoading(false);
     }
   };
 
-  // SINGLE ACTIVE SESSION ENFORCEMENT:
-  // - If an active session exists, route to it
-  // - Otherwise create a new session and route to it
   const onStartWorkout = async () => {
-    if (sessionLoading) return;
+    if (sessionLoading || startingGeneric || startingTemplateId) return;
 
     if (!userId) {
       setErr("No user session found. Please log in again.");
       return;
     }
 
-    setLoading(true);
+    setStartingGeneric(true);
     setErr(null);
 
     try {
       const active = await getActiveWorkoutSession(userId);
 
       if (active?.id) {
-        router.push(`/workout/${encodeURIComponent(active.id)}`);
+        router.push(`/sessions/${encodeURIComponent(active.id)}`);
+        return;
+      }
+
+      const firstMatchingTemplate = templates.find(
+        (t) => normalizeActivityType(t.activity_type) === selectedActivity
+      );
+
+      if (firstMatchingTemplate?.id) {
+        const created = await createWorkoutSessionFromTemplate({
+          userId,
+          templateId: firstMatchingTemplate.id,
+        });
+
+        router.push(`/sessions/${encodeURIComponent(created.id)}`);
         return;
       }
 
@@ -109,25 +156,75 @@ export default function WorkoutsScreen() {
         activityType: selectedActivity,
       });
 
-      router.push(`/workout/${encodeURIComponent(created.id)}`);
-    } catch (e: any) {
-      const msg = e?.message ?? "Failed to start workout session";
+      router.push(`/sessions/${encodeURIComponent(created.id)}`);
+    } catch (e: unknown) {
+      const anyErr = e as { message?: string };
+      const msg = anyErr?.message ?? "Failed to start workout session";
       setErr(String(msg));
     } finally {
-      setLoading(false);
+      setStartingGeneric(false);
+    }
+  };
+
+  const onStartFromTemplate = async (templateId: string) => {
+    if (sessionLoading || startingGeneric || startingTemplateId) return;
+
+    if (!userId) {
+      setErr("No user session found. Please log in again.");
+      return;
+    }
+
+    setStartingTemplateId(templateId);
+    setErr(null);
+
+    try {
+      const active = await getActiveWorkoutSession(userId);
+
+      if (active?.id) {
+        router.push(`/sessions/${encodeURIComponent(active.id)}`);
+        return;
+      }
+
+      const created = await createWorkoutSessionFromTemplate({
+        userId,
+        templateId,
+      });
+
+      router.push(`/sessions/${encodeURIComponent(created.id)}`);
+    } catch (e: unknown) {
+      const anyErr = e as { message?: string };
+      const msg = anyErr?.message ?? "Failed to start template workout";
+      setErr(String(msg));
+    } finally {
+      setStartingTemplateId(null);
     }
   };
 
   useEffect(() => {
-    if (!sessionLoading && userId) load();
+    if (!sessionLoading && userId) {
+      void load();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionLoading, userId]);
 
   const title = useMemo(() => {
     if (loading) return "Workouts";
     if (err) return "Workouts";
-    return hasSessions ? `Workouts (${sessions.length})` : "Workouts";
-  }, [loading, err, hasSessions, sessions.length]);
+
+    const parts: string[] = [];
+    if (hasTemplates) parts.push(`${templates.length} templates`);
+    if (hasSessions) parts.push(`${sessions.length} sessions`);
+
+    return parts.length ? `Workouts (${parts.join(" • ")})` : "Workouts";
+  }, [loading, err, hasTemplates, hasSessions, templates.length, sessions.length]);
+
+  const filteredTemplates = useMemo(() => {
+    return templates.filter(
+      (t) => normalizeActivityType(t.activity_type) === selectedActivity
+    );
+  }, [templates, selectedActivity]);
+
+  const isAnyStartLoading = startingGeneric || !!startingTemplateId;
 
   return (
     <Screen>
@@ -137,10 +234,9 @@ export default function WorkoutsScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.sub}>Choose an activity, then start</Text>
+          <Text style={styles.sub}>Pick a template or start a session</Text>
         </View>
 
-        {/* Activity chooser */}
         <Card style={{ marginBottom: theme.spacing.md }}>
           <Text style={styles.section}>Workout Type</Text>
 
@@ -150,7 +246,10 @@ export default function WorkoutsScreen() {
               return (
                 <Pressable
                   key={opt.key}
-                  onPress={() => setSelectedActivity(opt.key)}
+                  onPress={() => {
+                    if (isAnyStartLoading) return;
+                    setSelectedActivity(opt.key);
+                  }}
                   style={({ pressed }) => [
                     styles.choice,
                     active && styles.choiceActive,
@@ -172,33 +271,104 @@ export default function WorkoutsScreen() {
 
           <View style={{ marginTop: theme.spacing.md }}>
             <PrimaryButton
-              label="Start Workout"
+              label={startingGeneric ? "Starting..." : "Start Workout Session"}
               onPress={onStartWorkout}
-              loading={loading}
+              loading={startingGeneric}
+              disabled={!!startingTemplateId}
             />
           </View>
 
           {err ? <Text style={styles.errorText}>{err}</Text> : null}
         </Card>
 
-        {/* Sessions list */}
+        <Card style={{ marginBottom: theme.spacing.md }}>
+          <Text style={styles.section}>Templates</Text>
+          <Text style={styles.meta}>
+            View a template or start a session directly from it.
+          </Text>
+
+          {loading ? (
+            <View style={styles.center}>
+              <ActivityIndicator />
+              <Text style={styles.meta}>Loading templates…</Text>
+            </View>
+          ) : !hasTemplates ? (
+            <Text style={styles.meta}>No templates yet.</Text>
+          ) : filteredTemplates.length === 0 ? (
+            <Text style={styles.meta}>
+              No templates for “{selectedActivity}”.
+            </Text>
+          ) : (
+            <View style={{ marginTop: theme.spacing.md, gap: 10 }}>
+              {filteredTemplates.map((t) => {
+                const isStartingThisTemplate = startingTemplateId === t.id;
+                const disableTemplateActions = isAnyStartLoading;
+
+                return (
+                  <Card key={t.id}>
+                    <Pressable
+                      onPress={() => {
+                        if (disableTemplateActions) return;
+                        router.push(`/template/${encodeURIComponent(t.id)}`);
+                      }}
+                      style={({ pressed }) => [pressed && { opacity: 0.9 }]}
+                    >
+                      <Text style={styles.rowTitle}>
+                        {t.title ?? "Workout Template"}
+                      </Text>
+                      <Text style={styles.meta}>
+                        {normalizeActivityType(t.activity_type)}
+                        {t.created_at ? ` • ${formatDate(t.created_at)}` : ""}
+                      </Text>
+                    </Pressable>
+
+                    <View style={{ height: 12 }} />
+
+                    <PrimaryButton
+                      label={
+                        isStartingThisTemplate
+                          ? "Starting..."
+                          : "Start From Template"
+                      }
+                      onPress={() => onStartFromTemplate(t.id)}
+                      loading={isStartingThisTemplate}
+                      disabled={disableTemplateActions && !isStartingThisTemplate}
+                    />
+                  </Card>
+                );
+              })}
+            </View>
+          )}
+
+          <View style={{ height: 12 }} />
+          <PrimaryButton
+            label="Refresh"
+            onPress={load}
+            disabled={isAnyStartLoading}
+          />
+        </Card>
+
         {loading ? (
           <Card>
             <View style={styles.center}>
               <ActivityIndicator />
               <Text style={styles.meta}>
-                {sessionLoading ? "Loading session…" : "Loading workouts…"}
+                {sessionLoading ? "Loading session…" : "Loading sessions…"}
               </Text>
             </View>
           </Card>
         ) : !hasSessions ? (
           <Card>
-            <Text style={styles.meta}>No workouts yet.</Text>
+            <Text style={styles.meta}>No workout sessions yet.</Text>
             <Text style={[styles.meta, { marginTop: 6 }]}>
               Start a session and it will appear here.
             </Text>
             <View style={{ marginTop: theme.spacing.md }}>
-              <PrimaryButton label="Refresh" onPress={load} />
+              <PrimaryButton
+                label="Refresh"
+                onPress={load}
+                disabled={isAnyStartLoading}
+              />
             </View>
           </Card>
         ) : (
@@ -210,7 +380,7 @@ export default function WorkoutsScreen() {
                 <Pressable
                   key={s.id}
                   onPress={() =>
-                    router.push(`/workout/${encodeURIComponent(s.id)}`)
+                    router.push(`/sessions/${encodeURIComponent(s.id)}`)
                   }
                   style={({ pressed }) => [pressed && { opacity: 0.9 }]}
                 >
@@ -220,7 +390,7 @@ export default function WorkoutsScreen() {
                     </Text>
 
                     <Text style={styles.meta}>
-                      {s.activity_type}
+                      {normalizeActivityType(s.activity_type)}
                       {started ? ` • ${formatDate(started)}` : ""}
                       {s.ended_at
                         ? ` • ended ${formatDate(s.ended_at)}`
@@ -236,7 +406,11 @@ export default function WorkoutsScreen() {
             })}
 
             <View style={{ height: 4 }} />
-            <PrimaryButton label="Refresh" onPress={load} />
+            <PrimaryButton
+              label="Refresh"
+              onPress={load}
+              disabled={isAnyStartLoading}
+            />
           </View>
         )}
       </ScrollView>

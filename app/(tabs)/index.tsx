@@ -59,11 +59,10 @@ function ymdLocal(d: Date) {
 }
 
 function startOfWeekLocal(now: Date) {
-  // Monday start
   const d = new Date(now);
   d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // 0=Sun..6=Sat
-  const mondayBased = (day + 6) % 7; // Mon=0..Sun=6
+  const day = d.getDay();
+  const mondayBased = (day + 6) % 7;
   d.setDate(d.getDate() - mondayBased);
   return d;
 }
@@ -137,10 +136,16 @@ function titleFromActivityType(activityType: string) {
   return `${label} Session`;
 }
 
-// Priority:
-// 1) Active session (not ended)
-// 2) Most recent session that started/created today (local)
-// 3) Most recent session overall
+function sessionDateKey(s: WorkoutSession) {
+  const base = (s as any)?.started_at ?? (s as any)?.created_at ?? s.ended_at;
+  if (!base) return null;
+
+  const dt = new Date(base);
+  if (Number.isNaN(dt.getTime())) return null;
+
+  return ymdLocal(dt);
+}
+
 function pickTodaySession(sessions: WorkoutSession[]) {
   if (!sessions?.length) return null;
 
@@ -150,29 +155,50 @@ function pickTodaySession(sessions: WorkoutSession[]) {
   const todayKey = ymdLocal(new Date());
 
   const sameDay = sessions
-    .map((s) => {
-      const base =
-        (s as any)?.started_at ?? (s as any)?.created_at ?? s.ended_at;
-      const dt = base ? new Date(base) : null;
-      return { s, dt };
-    })
-    .filter((x) => x.dt && !Number.isNaN(x.dt!.getTime()))
-    .filter((x) => ymdLocal(x.dt as Date) === todayKey)
-    .sort((a, b) => (b.dt as Date).getTime() - (a.dt as Date).getTime());
+    .filter((s) => sessionDateKey(s) === todayKey)
+    .sort((a, b) => {
+      const aBase =
+        (a as any)?.started_at ?? (a as any)?.created_at ?? a.ended_at ?? "";
+      const bBase =
+        (b as any)?.started_at ?? (b as any)?.created_at ?? b.ended_at ?? "";
+      return new Date(bBase).getTime() - new Date(aBase).getTime();
+    });
 
-  if (sameDay.length) return sameDay[0]!.s;
+  return sameDay[0] ?? null;
+}
 
-  const sorted = sessions
-    .map((s) => {
-      const base =
-        (s as any)?.started_at ?? (s as any)?.created_at ?? s.ended_at;
-      const dt = base ? new Date(base) : null;
-      return { s, dt };
-    })
-    .filter((x) => x.dt && !Number.isNaN(x.dt!.getTime()))
-    .sort((a, b) => (b.dt as Date).getTime() - (a.dt as Date).getTime());
+function getPlanDateKey(plan: PlannedWorkout) {
+  const raw =
+    (plan as any)?.plan_date ??
+    (plan as any)?.planned_date ??
+    (plan as any)?.scheduled_date ??
+    (plan as any)?.date ??
+    null;
 
-  return sorted[0]?.s ?? sessions[0] ?? null;
+  if (!raw) return null;
+
+  if (typeof raw === "string") {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return ymdLocal(parsed);
+    return raw.slice(0, 10);
+  }
+
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return null;
+
+  return ymdLocal(dt);
+}
+
+function pickTodayPlan(plans: PlannedWorkout[]) {
+  if (!plans?.length) return null;
+
+  const todayKey = ymdLocal(new Date());
+
+  const sameDayPlans = plans.filter((p) => getPlanDateKey(p) === todayKey);
+
+  if (!sameDayPlans.length) return null;
+
+  return sameDayPlans[0] ?? null;
 }
 
 export default function HomeScreen() {
@@ -204,12 +230,11 @@ export default function HomeScreen() {
     return { ...base, ...computeDashboardMetrics(sessions, weeklyGoalMin) };
   }, [user, sessions, weeklyGoalMin]);
 
-  const progress = Math.min(1, metrics.minutesThisWeek / metrics.weeklyGoalMin);
+  const progress = metrics.weeklyGoalMin
+    ? Math.min(1, metrics.minutesThisWeek / metrics.weeklyGoalMin)
+    : 0;
   const pct = Math.round(progress * 100);
 
-  // Exclusive end range:
-  // start = first day of current month (inclusive)
-  // end   = first day of next month (exclusive)
   const fetchDashboardData = useCallback(async () => {
     if (sessionLoading) return;
 
@@ -245,7 +270,6 @@ export default function HomeScreen() {
     }
   }, [sessionLoading, userId]);
 
-  // Refresh any time this tab/screen gains focus (returning from workout, plan edits, etc.)
   useFocusEffect(
     useCallback(() => {
       if (!sessionLoading && userId) {
@@ -254,9 +278,6 @@ export default function HomeScreen() {
     }, [sessionLoading, userId, fetchDashboardData])
   );
 
-  // Supports:
-  // - Start workout normally
-  // - Start from plan (planId passed through to workout_sessions.plan_id)
   const startFromCalendar = async (
     activityType?: string,
     planId?: string,
@@ -274,7 +295,7 @@ export default function HomeScreen() {
     try {
       const active = await getActiveWorkoutSession(userId);
       if (active?.id) {
-        router.push({ pathname: "/workout/[id]", params: { id: active.id } });
+        router.push({ pathname: "/sessions/[id]", params: { id: active.id } });
         return;
       }
 
@@ -283,10 +304,10 @@ export default function HomeScreen() {
         userId,
         title: title ?? titleFromActivityType(type),
         activityType: type,
-        planId: planId ?? null, // ✅ critical
+        planId: planId ?? null,
       });
 
-      router.push({ pathname: "/workout/[id]", params: { id: created.id } });
+      router.push({ pathname: "/sessions/[id]", params: { id: created.id } });
     } catch (e: unknown) {
       console.log("Dashboard startFromCalendar error:", e);
       setErr(getErrMsg(e, "Failed to start workout session"));
@@ -298,23 +319,55 @@ export default function HomeScreen() {
     setPlanDrawerOpen(true);
   };
 
-  const today = useMemo(() => pickTodaySession(sessions), [sessions]);
+  const todaySession = useMemo(() => pickTodaySession(sessions), [sessions]);
+  const todayPlan = useMemo(() => pickTodayPlan(plans), [plans]);
 
   const onOpenTodaySession = () => {
-    if (!today?.id) return;
+    if (!todaySession?.id) return;
     router.push({
-      pathname: "/workout/[id]",
-      params: { id: String(today.id) },
+      pathname: "/sessions/[id]",
+      params: { id: String(todaySession.id) },
     });
   };
 
-  const todayTitle =
-    (today?.title && String(today.title).trim()) ||
-    (today?.activity_type
-      ? `${formatActivityType(today.activity_type)} session`
+  const onStartTodayPlan = async () => {
+    if (!todayPlan) return;
+
+    const activityType =
+      (todayPlan as any)?.activity_type ??
+      (todayPlan as any)?.type ??
+      "lifting";
+
+    const planId = (todayPlan as any)?.id
+      ? String((todayPlan as any).id)
+      : undefined;
+
+    const title =
+      ((todayPlan as any)?.title && String((todayPlan as any).title).trim()) ||
+      ((todayPlan as any)?.name && String((todayPlan as any).name).trim()) ||
+      titleFromActivityType(activityType);
+
+    await startFromCalendar(activityType, planId, title);
+  };
+
+  const todaySessionTitle =
+    (todaySession?.title && String(todaySession.title).trim()) ||
+    (todaySession?.activity_type
+      ? `${formatActivityType(todaySession.activity_type)} session`
       : "Workout session");
 
-  const statusLabel = today?.ended_at ? "Completed" : "Active";
+  const todayPlanTitle =
+    (((todayPlan as any)?.title &&
+      String((todayPlan as any).title).trim()) as string) ||
+    (((todayPlan as any)?.name &&
+      String((todayPlan as any).name).trim()) as string) ||
+    ((todayPlan as any)?.activity_type || (todayPlan as any)?.type
+      ? `${formatActivityType(
+          (todayPlan as any)?.activity_type ?? (todayPlan as any)?.type
+        )} workout`
+      : "Planned workout");
+
+  const statusLabel = todaySession?.ended_at ? "Completed" : "Active";
 
   return (
     <Screen>
@@ -381,23 +434,14 @@ export default function HomeScreen() {
             </>
           ) : null}
 
-          {!loading && !err && !today ? (
-            <>
-              <Text style={styles.meta}>No workout sessions available yet.</Text>
-              <View style={{ marginTop: theme.spacing.md }}>
-                <PrimaryButton label="Refresh" onPress={fetchDashboardData} />
-              </View>
-            </>
-          ) : null}
-
-          {!loading && !err && today ? (
+          {!loading && !err && todaySession ? (
             <>
               <View style={styles.todayRow}>
-                <Text style={styles.workoutTitle}>{todayTitle}</Text>
+                <Text style={styles.workoutTitle}>{todaySessionTitle}</Text>
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>
-                    {today.activity_type
-                      ? formatActivityType(today.activity_type)
+                    {todaySession.activity_type
+                      ? formatActivityType(todaySession.activity_type)
                       : "—"}
                   </Text>
                 </View>
@@ -406,16 +450,54 @@ export default function HomeScreen() {
               <Text style={styles.meta}>
                 {statusLabel}
                 {" • "}
-                {typeof today.duration_min === "number"
-                  ? `${today.duration_min} minutes`
+                {typeof todaySession.duration_min === "number"
+                  ? `${todaySession.duration_min} minutes`
                   : "Duration —"}
               </Text>
 
               <View style={{ marginTop: theme.spacing.md }}>
                 <PrimaryButton
-                  label={today.ended_at ? "View Session" : "Continue Session"}
+                  label={
+                    todaySession.ended_at ? "View Session" : "Continue Session"
+                  }
                   onPress={onOpenTodaySession}
                 />
+              </View>
+            </>
+          ) : null}
+
+          {!loading && !err && !todaySession && todayPlan ? (
+            <>
+              <View style={styles.todayRow}>
+                <Text style={styles.workoutTitle}>{todayPlanTitle}</Text>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {formatActivityType(
+                      (todayPlan as any)?.activity_type ??
+                        (todayPlan as any)?.type
+                    )}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.meta}>Planned for today</Text>
+
+              <View style={{ marginTop: theme.spacing.md }}>
+                <PrimaryButton
+                  label="Start Planned Workout"
+                  onPress={onStartTodayPlan}
+                />
+              </View>
+            </>
+          ) : null}
+
+          {!loading && !err && !todaySession && !todayPlan ? (
+            <>
+              <Text style={styles.meta}>
+                No session or planned workout for today.
+              </Text>
+              <View style={{ marginTop: theme.spacing.md }}>
+                <PrimaryButton label="Refresh" onPress={fetchDashboardData} />
               </View>
             </>
           ) : null}
@@ -427,7 +509,7 @@ export default function HomeScreen() {
           defaultActivityType="lifting"
           onStartWorkout={startFromCalendar}
           onOpenSession={(id) =>
-            router.push({ pathname: "/workout/[id]", params: { id } })
+            router.push({ pathname: "/sessions/[id]", params: { id } })
           }
           onDayPress={onDayPressForPlan}
         />
@@ -438,7 +520,7 @@ export default function HomeScreen() {
             onClose={() => {
               setPlanDrawerOpen(false);
               setSelectedPlanDate(null);
-              fetchDashboardData(); // refresh after edits
+              fetchDashboardData();
             }}
             planDate={selectedPlanDate}
           />

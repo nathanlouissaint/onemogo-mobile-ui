@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { PrimaryButton } from "../components/PrimaryButton";
 import { theme } from "../constants/theme";
 import {
   deletePlanByDate,
@@ -12,15 +13,15 @@ import {
   resetPlanToPlannedByDate,
   type PlannedWorkout,
 } from "../lib/plans";
-import { createWorkoutSessionFromPlan } from "../lib/workouts.mutations";
 import { getActiveWorkoutSession } from "../lib/workouts";
+import { createWorkoutSessionFromPlan } from "../lib/workouts.mutations";
 import { useSession } from "../session/SessionContext";
 import { PlanBuilderModal } from "./PlanBuilderModal";
 
 type Props = {
   visible: boolean;
   onClose: () => void;
-  planDate: string; // YYYY-MM-DD (local)
+  planDate: string;
 };
 
 function getErrMsg(e: unknown, fallback: string) {
@@ -50,6 +51,22 @@ function formatActivityType(v?: string | null) {
   if (!s) return "Workout";
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+const ui = {
+  radiusPill: 999,
+  sheetMinHeight: 320,
+  blockPad: 14,
+  chipPadX: 10,
+  chipPadY: 6,
+};
+
+const palette = {
+  overlay: "rgba(0,0,0,0.45)",
+  faintSurface: "rgba(255,255,255,0.04)",
+  successSoft: "rgba(48,209,88,0.14)",
+  dangerSoft: "rgba(255,69,58,0.14)",
+  resetSoft: "rgba(148,163,184,0.16)",
+};
 
 export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
   const { user } = useSession();
@@ -190,8 +207,10 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
         <Pressable style={styles.overlay} onPress={onClose} />
 
         <View style={styles.sheet}>
+          <View style={styles.handle} />
+
           <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
+            <View style={styles.headerCopy}>
               <Text style={styles.headerEyebrow}>Plan day</Text>
               <Text style={styles.headerTitle}>{planDate}</Text>
             </View>
@@ -206,20 +225,20 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
           ) : err ? (
             <>
               <Text style={styles.errorText}>{err}</Text>
-              <Pressable onPress={load} style={styles.primaryBtn}>
-                <Text style={styles.primaryBtnText}>Retry</Text>
-              </Pressable>
+              <View style={styles.sectionTopSpace}>
+                <PrimaryButton label="Retry" onPress={load} />
+              </View>
             </>
           ) : !plan ? (
             <>
               <Text style={styles.mutedText}>No plan for this day.</Text>
 
-              <Pressable
-                onPress={() => setBuilderOpen(true)}
-                style={styles.primaryBtn}
-              >
-                <Text style={styles.primaryBtnText}>Plan workout</Text>
-              </Pressable>
+              <View style={styles.sectionTopSpace}>
+                <PrimaryButton
+                  label="Plan workout"
+                  onPress={() => setBuilderOpen(true)}
+                />
+              </View>
             </>
           ) : (
             <>
@@ -232,6 +251,7 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
                       {formatActivityType(plan.activity_type)}
                     </Text>
                   </View>
+
                   <View style={styles.metaPill}>
                     <Text style={styles.metaPillText}>
                       {statusLabel(plan.status)}
@@ -263,83 +283,68 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
                 )}
               </View>
 
-              <View style={styles.row}>
-                <Pressable
-                  onPress={onStartWorkout}
-                  disabled={starting || !canStartPlan}
-                  style={[
-                    styles.primaryBtn,
-                    styles.rowBtn,
-                    (starting || !canStartPlan) && styles.disabledBtn,
-                  ]}
-                >
-                  <Text style={styles.primaryBtnText}>
-                    {starting
+              <View style={styles.sectionTopSpace}>
+                <PrimaryButton
+                  label={
+                    starting
                       ? "Starting…"
                       : plan.status === "planned"
                       ? "Start Workout"
-                      : "Unavailable"}
-                  </Text>
-                </Pressable>
+                      : "Unavailable"
+                  }
+                  onPress={onStartWorkout}
+                  disabled={starting || !canStartPlan}
+                />
               </View>
 
               <View style={styles.row}>
-                <Pressable
-                  onPress={() => setStatus("completed")}
-                  disabled={savingStatus}
-                  style={[
-                    styles.statusBtn,
-                    styles.statusCompleted,
-                    savingStatus && styles.disabledBtn,
-                  ]}
-                >
-                  <Text style={styles.statusBtnText}>Mark Completed</Text>
-                </Pressable>
+                <View style={styles.flexOne}>
+                  <PrimaryButton
+                    label="Mark Completed"
+                    onPress={() => setStatus("completed")}
+                    disabled={savingStatus}
+                    variant="secondary"
+                  />
+                </View>
 
-                <Pressable
-                  onPress={() => setStatus("skipped")}
-                  disabled={savingStatus}
-                  style={[
-                    styles.statusBtn,
-                    styles.statusSkipped,
-                    savingStatus && styles.disabledBtn,
-                  ]}
-                >
-                  <Text style={styles.statusBtnText}>Mark Skipped</Text>
-                </Pressable>
+                <View style={styles.flexOne}>
+                  <PrimaryButton
+                    label="Mark Skipped"
+                    onPress={() => setStatus("skipped")}
+                    disabled={savingStatus}
+                    variant="danger"
+                  />
+                </View>
               </View>
 
               <View style={styles.row}>
-                <Pressable
-                  onPress={() => setStatus("planned")}
-                  disabled={savingStatus}
-                  style={[
-                    styles.statusBtn,
-                    styles.statusReset,
-                    savingStatus && styles.disabledBtn,
-                  ]}
-                >
-                  <Text style={styles.statusBtnText}>Reset to Planned</Text>
-                </Pressable>
+                <View style={styles.flexOne}>
+                  <PrimaryButton
+                    label="Reset to Planned"
+                    onPress={() => setStatus("planned")}
+                    disabled={savingStatus}
+                    variant="ghost"
+                  />
+                </View>
               </View>
 
               <View style={styles.row}>
-                <Pressable
-                  onPress={() => setBuilderOpen(true)}
-                  style={styles.secondaryBtn}
-                >
-                  <Text style={styles.secondaryBtnText}>Edit</Text>
-                </Pressable>
+                <View style={styles.flexOne}>
+                  <PrimaryButton
+                    label="Edit"
+                    onPress={() => setBuilderOpen(true)}
+                    variant="secondary"
+                  />
+                </View>
 
-                <Pressable
-                  onPress={onDelete}
-                  disabled={deleting}
-                  style={[styles.dangerBtn, deleting && styles.disabledBtn]}
-                >
-                  <Text style={styles.dangerBtnText}>
-                    {deleting ? "Deleting…" : "Delete"}
-                  </Text>
-                </Pressable>
+                <View style={styles.flexOne}>
+                  <PrimaryButton
+                    label={deleting ? "Deleting…" : "Delete"}
+                    onPress={onDelete}
+                    disabled={deleting}
+                    variant="danger"
+                  />
+                </View>
               </View>
             </>
           )}
@@ -362,11 +367,13 @@ export function PlanDayDrawer({ visible, onClose, planDate }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: {
+    flex: 1,
+  },
 
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: palette.overlay,
   },
 
   sheet: {
@@ -374,26 +381,41 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    minHeight: ui.sheetMinHeight,
     padding: theme.spacing.lg,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: theme.radius.lg,
+    borderTopRightRadius: theme.radius.lg,
     backgroundColor: theme.colors.surface,
-    minHeight: 320,
     borderTopWidth: 1,
     borderColor: theme.colors.border,
+  },
+
+  handle: {
+    alignSelf: "center",
+    width: 44,
+    height: 4,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.border,
+    marginBottom: theme.spacing.md,
   },
 
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: theme.spacing.sm,
   },
+
+  headerCopy: {
+    flex: 1,
+  },
+
   headerEyebrow: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
+
   headerTitle: {
     color: theme.colors.text,
     fontSize: theme.font.size.lg,
@@ -402,125 +424,89 @@ const styles = StyleSheet.create({
   },
 
   closeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
-  closeBtnText: { color: theme.colors.text, fontWeight: "800" },
+
+  closeBtnText: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.sm,
+    fontWeight: "800",
+  },
 
   mutedText: {
+    marginTop: theme.spacing.sm,
     color: theme.colors.textMuted,
-    marginTop: 12,
+    fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
 
   errorText: {
-    color: "#ff6b6b",
-    marginTop: 12,
+    marginTop: theme.spacing.sm,
+    color: theme.colors.danger,
+    fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
 
-  primaryBtn: {
-    marginTop: 16,
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: theme.colors.accent,
-  },
-  primaryBtnText: {
-    color: theme.colors.text,
-    textAlign: "center",
-    fontWeight: "800",
-  },
-
-  rowBtn: {
-    flex: 1,
-    marginTop: 0,
+  sectionTopSpace: {
+    marginTop: theme.spacing.md,
   },
 
   planCard: {
-    marginTop: 12,
-    padding: 14,
-    borderRadius: 14,
+    marginTop: theme.spacing.sm,
+    padding: ui.blockPad,
+    borderRadius: theme.radius.md,
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+
   planTitle: {
     color: theme.colors.text,
-    fontWeight: "900",
     fontSize: theme.font.size.md,
+    fontWeight: "900",
   },
+
   planMeta: {
-    color: theme.colors.textMuted,
     marginTop: 6,
+    color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
 
   metaPillRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 10,
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.sm,
   },
+
   metaPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+    paddingHorizontal: ui.chipPadX,
+    paddingVertical: ui.chipPadY,
+    borderRadius: ui.radiusPill,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: palette.faintSurface,
   },
+
   metaPillText: {
     color: theme.colors.text,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
 
-  row: { flexDirection: "row", gap: 10, marginTop: 12 },
+  row: {
+    flexDirection: "row",
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
 
-  secondaryBtn: {
+  flexOne: {
     flex: 1,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: theme.colors.surface2,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  secondaryBtnText: {
-    color: theme.colors.text,
-    textAlign: "center",
-    fontWeight: "800",
-  },
-
-  dangerBtn: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "#7f1d1d",
-  },
-  dangerBtnText: {
-    color: "#fff",
-    textAlign: "center",
-    fontWeight: "800",
-  },
-
-  statusBtn: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statusBtnText: { color: "#fff", fontWeight: "800" },
-
-  statusCompleted: { backgroundColor: "#166534" },
-  statusSkipped: { backgroundColor: "#7f1d1d" },
-  statusReset: { backgroundColor: "#334155" },
-
-  disabledBtn: {
-    opacity: 0.6,
   },
 });

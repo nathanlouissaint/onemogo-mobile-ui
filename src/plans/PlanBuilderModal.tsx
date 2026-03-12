@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
+import { PrimaryButton } from "../components/PrimaryButton";
 import { theme } from "../constants/theme";
 import { type PlannedWorkout, toTimeString, upsertPlan } from "../lib/plans";
 import { useSession } from "../session/SessionContext";
@@ -18,7 +19,7 @@ import { useSession } from "../session/SessionContext";
 type Props = {
   visible: boolean;
   onClose: () => void;
-  planDate: string; // YYYY-MM-DD (local)
+  planDate: string;
   existing: PlannedWorkout | null;
   onSaved: (p: PlannedWorkout) => void;
 };
@@ -67,6 +68,18 @@ function normalizeActivityType(v?: string | null) {
   if (s === "run" || s === "running") return "cardio";
   return s;
 }
+
+const ui = {
+  radiusPill: 999,
+  sheetMinHeight: 420,
+  chipPadX: 12,
+  chipPadY: 10,
+};
+
+const palette = {
+  overlay: "rgba(0,0,0,0.45)",
+  accentSoft: "rgba(10,132,255,0.12)",
+};
 
 export function PlanBuilderModal({
   visible,
@@ -249,8 +262,10 @@ export function PlanBuilderModal({
         <Pressable style={styles.overlay} onPress={onClose} />
 
         <View style={styles.sheet}>
+          <View style={styles.handle} />
+
           <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
+            <View style={styles.headerCopy}>
               <Text style={styles.headerEyebrow}>
                 {existing ? "Edit plan" : "Plan workout"}
               </Text>
@@ -281,9 +296,10 @@ export function PlanBuilderModal({
                 <Pressable
                   key={option.value}
                   onPress={() => setActivityType(option.value)}
-                  style={[
+                  style={({ pressed }) => [
                     styles.optionPill,
                     active && styles.optionPillActive,
+                    pressed && styles.pressed,
                   ]}
                 >
                   <Text
@@ -300,7 +316,7 @@ export function PlanBuilderModal({
           </View>
 
           <View style={styles.inlineRow}>
-            <View style={{ flex: 1 }}>
+            <View style={styles.flexOne}>
               <Text style={styles.label}>Planned duration (min)</Text>
               <TextInput
                 value={durationMin}
@@ -315,9 +331,9 @@ export function PlanBuilderModal({
               />
             </View>
 
-            <View style={{ width: 12 }} />
+            <View style={styles.inlineSpacer} />
 
-            <View style={{ width: 110 }}>
+            <View style={styles.rpeCol}>
               <Text style={styles.label}>Planned RPE</Text>
               <TextInput
                 value={rpe}
@@ -338,7 +354,7 @@ export function PlanBuilderModal({
               onPress={() => setTimeEnabled((v) => !v)}
               style={[
                 styles.timeToggle,
-                timeEnabled ? styles.timeToggleActive : null,
+                timeEnabled && styles.timeToggleActive,
               ]}
             >
               <Text style={styles.timeToggleText}>
@@ -379,24 +395,14 @@ export function PlanBuilderModal({
 
           {!!error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          <Pressable
-            onPress={onSave}
-            disabled={!canSave || saving}
-            style={[
-              styles.saveBtn,
-              canSave ? styles.saveBtnEnabled : styles.saveBtnDisabled,
-              saving && styles.disabledState,
-            ]}
-          >
-            <Text
-              style={[
-                styles.saveBtnText,
-                canSave ? styles.saveBtnTextEnabled : styles.saveBtnTextDisabled,
-              ]}
-            >
-              {saving ? "Saving…" : "Save plan"}
-            </Text>
-          </Pressable>
+          <View style={styles.saveTopSpace}>
+            <PrimaryButton
+              label={saving ? "Saving..." : "Save plan"}
+              onPress={onSave}
+              disabled={!canSave || saving}
+              loading={saving}
+            />
+          </View>
         </View>
       </View>
     </Modal>
@@ -404,11 +410,21 @@ export function PlanBuilderModal({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: {
+    flex: 1,
+  },
+
+  pressed: {
+    opacity: 0.92,
+  },
+
+  flexOne: {
+    flex: 1,
+  },
 
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: palette.overlay,
   },
 
   sheet: {
@@ -416,25 +432,41 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    minHeight: ui.sheetMinHeight,
     padding: theme.spacing.lg,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: theme.radius.lg,
+    borderTopRightRadius: theme.radius.lg,
     backgroundColor: theme.colors.surface,
     borderTopWidth: 1,
     borderColor: theme.colors.border,
+  },
+
+  handle: {
+    alignSelf: "center",
+    width: 44,
+    height: 4,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.border,
+    marginBottom: theme.spacing.md,
   },
 
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: theme.spacing.sm,
   },
+
+  headerCopy: {
+    flex: 1,
+  },
+
   headerEyebrow: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
+
   headerTitle: {
     color: theme.colors.text,
     fontSize: theme.font.size.lg,
@@ -443,56 +475,67 @@ const styles = StyleSheet.create({
   },
 
   closeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+
   closeBtnText: {
     color: theme.colors.text,
+    fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
 
   label: {
     color: theme.colors.textMuted,
-    marginTop: 12,
+    marginTop: theme.spacing.sm,
+    fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
 
   input: {
     marginTop: 6,
-    padding: 12,
-    borderRadius: 12,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.surface2,
     color: theme.colors.text,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    fontSize: theme.font.size.md,
+    fontWeight: "700",
   },
 
   optionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 8,
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.xs,
   },
+
   optionPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 999,
+    paddingHorizontal: ui.chipPadX,
+    paddingVertical: ui.chipPadY,
+    borderRadius: ui.radiusPill,
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+
   optionPillActive: {
-    backgroundColor: "rgba(10,132,255,0.12)",
+    backgroundColor: palette.accentSoft,
     borderColor: theme.colors.accent,
   },
+
   optionPillText: {
     color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
+
   optionPillTextActive: {
     color: theme.colors.text,
   },
@@ -503,76 +546,74 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+  inlineSpacer: {
+    width: theme.spacing.sm,
+  },
+
+  rpeCol: {
+    width: 110,
+  },
+
   timeRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 12,
+    marginTop: theme.spacing.sm,
     flexWrap: "wrap",
   },
+
   timeToggle: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    paddingVertical: ui.chipPadY,
+    paddingHorizontal: ui.chipPadX,
+    borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.surface2,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
+
   timeToggleActive: {
-    backgroundColor: "rgba(10,132,255,0.12)",
+    backgroundColor: palette.accentSoft,
     borderColor: theme.colors.accent,
   },
+
   timeToggleText: {
     color: theme.colors.text,
+    fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
+
   timePickerWrap: {
-    marginLeft: 12,
+    marginLeft: theme.spacing.sm,
   },
+
   webTimeHint: {
     color: theme.colors.textMuted,
+    fontSize: theme.font.size.sm,
     fontWeight: "700",
   },
 
   notes: {
     marginTop: 6,
-    padding: 12,
-    borderRadius: 12,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.surface2,
     color: theme.colors.text,
     minHeight: 90,
     textAlignVertical: "top",
     borderWidth: 1,
     borderColor: theme.colors.border,
+    fontSize: theme.font.size.md,
+    fontWeight: "700",
   },
 
   errorText: {
-    color: "#fca5a5",
-    marginTop: 10,
+    color: theme.colors.danger,
+    marginTop: theme.spacing.sm,
+    fontSize: theme.font.size.sm,
     fontWeight: "800",
   },
 
-  saveBtn: {
-    marginTop: 14,
-    padding: 14,
-    borderRadius: 12,
-  },
-  saveBtnEnabled: {
-    backgroundColor: "#22c55e",
-  },
-  saveBtnDisabled: {
-    backgroundColor: theme.colors.surface2,
-  },
-  saveBtnText: {
-    textAlign: "center",
-    fontWeight: "800",
-  },
-  saveBtnTextEnabled: {
-    color: "#111",
-  },
-  saveBtnTextDisabled: {
-    color: theme.colors.text,
-  },
-  disabledState: {
-    opacity: 0.7,
+  saveTopSpace: {
+    marginTop: theme.spacing.md,
   },
 });

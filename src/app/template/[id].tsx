@@ -1,4 +1,3 @@
-// app/sessions/[id].tsx
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -9,17 +8,17 @@ import {
   View,
 } from "react-native";
 
-import { Card } from "../../src/components/Card";
-import { PrimaryButton } from "../../src/components/PrimaryButton";
-import { Screen } from "../../src/components/Screen";
-import { theme } from "../../src/constants/theme";
+import { Card } from "../../components/Card";
+import { PrimaryButton } from "../../components/PrimaryButton";
+import { Screen } from "../../components/Screen";
+import { theme } from "../../constants/theme";
 
 import {
   completeWorkoutSession,
   getWorkoutSessionById,
   type WorkoutSession,
-} from "../../src/lib/workouts";
-import { useSession } from "../../src/session/SessionContext";
+} from "../../lib/workouts";
+import { useSession } from "../../session/SessionContext";
 
 function formatActivityType(v?: string | null) {
   if (!v) return "—";
@@ -197,14 +196,28 @@ export default function WorkoutSessionDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.kicker}>Session</Text>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.kicker}>Training Session</Text>
+            <View
+              style={[
+                styles.statusBadge,
+                session?.ended_at
+                  ? styles.statusBadgeComplete
+                  : styles.statusBadgeActive,
+              ]}
+            >
+              <Text style={styles.statusBadgeText}>{statusLabel}</Text>
+            </View>
+          </View>
+
           <Text style={styles.title} numberOfLines={2}>
             {loading ? "Loading..." : title}
           </Text>
+
           <Text style={styles.sub}>
             {loading
               ? "Loading session..."
-              : `${formatActivityType(session?.activity_type)} • ${statusLabel}`}
+              : `${formatActivityType(session?.activity_type)} session checkpoint`}
           </Text>
         </View>
 
@@ -217,22 +230,30 @@ export default function WorkoutSessionDetailScreen() {
           </Card>
         ) : err ? (
           <Card>
+            <Text style={styles.errorTitle}>Session Error</Text>
             <Text style={styles.errorText}>{err}</Text>
-            <View style={{ marginTop: theme.spacing.md }}>
+
+            <View style={styles.actionBlock}>
               <PrimaryButton label="Retry" onPress={loadSession} />
             </View>
-            <View style={{ height: 12 }} />
+
+            <View style={styles.buttonGap} />
             <PrimaryButton label="Back" onPress={() => router.back()} />
           </Card>
         ) : session ? (
           <>
-            <Card style={{ marginBottom: theme.spacing.md }}>
+            <Card style={styles.heroCard}>
               <Text style={styles.section}>Live Timer</Text>
 
               <View style={styles.liveWrap}>
-                <View style={styles.livePill}>
+                <View
+                  style={[
+                    styles.livePill,
+                    session.ended_at ? styles.livePillComplete : styles.livePillActive,
+                  ]}
+                >
                   <Text style={styles.livePillText}>
-                    {session.ended_at ? "Completed" : "Active"}
+                    {session.ended_at ? "Session Complete" : "Session Active"}
                   </Text>
                 </View>
 
@@ -241,7 +262,7 @@ export default function WorkoutSessionDetailScreen() {
               </View>
             </Card>
 
-            <Card style={{ marginBottom: theme.spacing.md }}>
+            <Card style={styles.cardSpacing}>
               <Text style={styles.section}>Overview</Text>
 
               <View style={styles.metaStack}>
@@ -297,7 +318,7 @@ export default function WorkoutSessionDetailScreen() {
                   </Text>
                 </View>
 
-                <View style={styles.metaRow}>
+                <View style={[styles.metaRow, styles.metaRowLast]}>
                   <Text style={styles.metaLabel}>Template</Text>
                   <Text style={styles.metaValue}>
                     {session.template_id ? "Linked" : "None"}
@@ -308,33 +329,36 @@ export default function WorkoutSessionDetailScreen() {
 
             <Card>
               <Text style={styles.section}>Actions</Text>
+              <Text style={styles.actionSubcopy}>
+                This screen is the session checkpoint. Phase 2 next step is
+                exercise logging and set tracking inside the active session.
+              </Text>
 
-              <View style={{ marginTop: theme.spacing.lg }}>
+              <View style={styles.actionGroup}>
                 {!session.ended_at ? (
                   <>
                     <PrimaryButton
                       label={completing ? "Completing..." : "Complete Session"}
                       onPress={onCompleteSession}
                     />
-                    <View style={{ height: 12 }} />
+                    <View style={styles.buttonGap} />
                   </>
                 ) : null}
 
                 <PrimaryButton label="Refresh" onPress={loadSession} />
-                <View style={{ height: 12 }} />
+                <View style={styles.buttonGap} />
                 <PrimaryButton label="Back" onPress={() => router.back()} />
               </View>
-
-              <Text style={styles.meta}>
-                This is the session-level checkpoint screen. The next build layer
-                is exercise logging and set tracking inside the active session.
-              </Text>
             </Card>
           </>
         ) : (
           <Card>
-            <Text style={styles.meta}>Session not found.</Text>
-            <View style={{ marginTop: theme.spacing.md }}>
+            <Text style={styles.emptyTitle}>Session not found</Text>
+            <Text style={styles.meta}>
+              The requested workout session could not be located.
+            </Text>
+
+            <View style={styles.actionBlock}>
               <PrimaryButton label="Back" onPress={() => router.back()} />
             </View>
           </Card>
@@ -345,63 +369,127 @@ export default function WorkoutSessionDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: { paddingBottom: 28 },
+  scroll: {
+    paddingBottom: 36,
+  },
 
-  header: { marginBottom: theme.spacing.lg },
+  header: {
+    marginBottom: theme.spacing.lg,
+    paddingTop: 4,
+  },
+
+  headerTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+  },
+
   kicker: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
-    fontWeight: "700",
+    fontWeight: "800",
+    letterSpacing: 0.4,
   },
+
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+
+  statusBadgeActive: {
+    backgroundColor: "rgba(10,132,255,0.12)",
+    borderColor: theme.colors.accent,
+  },
+
+  statusBadgeComplete: {
+    backgroundColor: "rgba(80,200,120,0.12)",
+    borderColor: "rgba(80,200,120,0.45)",
+  },
+
+  statusBadgeText: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
   title: {
     color: theme.colors.text,
-    fontSize: theme.font.size.xxl,
+    fontSize: 34,
     fontWeight: "900",
-    marginTop: 8,
+    lineHeight: 38,
   },
+
   sub: {
     color: theme.colors.textMuted,
     marginTop: 10,
     fontSize: theme.font.size.md,
-    fontWeight: "700",
+    fontWeight: "600",
+    lineHeight: 22,
+    maxWidth: "92%",
+  },
+
+  heroCard: {
+    marginBottom: theme.spacing.md,
+  },
+
+  cardSpacing: {
+    marginBottom: theme.spacing.md,
   },
 
   center: {
     alignItems: "center",
-    paddingVertical: 10,
+    paddingVertical: 18,
   },
 
   section: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
+    letterSpacing: 0.3,
   },
 
   liveWrap: {
     marginTop: theme.spacing.md,
     alignItems: "center",
-    paddingVertical: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.md,
   },
+
   livePill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: "rgba(10,132,255,0.12)",
     borderWidth: 1,
+  },
+
+  livePillActive: {
+    backgroundColor: "rgba(10,132,255,0.12)",
     borderColor: theme.colors.accent,
   },
+
+  livePillComplete: {
+    backgroundColor: "rgba(80,200,120,0.12)",
+    borderColor: "rgba(80,200,120,0.45)",
+  },
+
   livePillText: {
     color: theme.colors.text,
     fontWeight: "800",
     fontSize: theme.font.size.sm,
   },
+
   liveTimer: {
     color: theme.colors.text,
-    fontSize: 40,
+    fontSize: 46,
     fontWeight: "900",
-    marginTop: 14,
-    letterSpacing: 1.2,
+    marginTop: 16,
+    letterSpacing: 1.4,
   },
+
   liveMeta: {
     color: theme.colors.textMuted,
     marginTop: 8,
@@ -411,29 +499,35 @@ const styles = StyleSheet.create({
 
   metaStack: {
     marginTop: theme.spacing.md,
-    gap: 12,
   },
 
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 16,
-    paddingBottom: 10,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
+  },
+
+  metaRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 4,
   },
 
   metaLabel: {
     color: theme.colors.textFaint,
     fontSize: theme.font.size.sm,
     fontWeight: "800",
+    flex: 1,
   },
 
   metaValue: {
     color: theme.colors.text,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
-    flexShrink: 1,
+    flex: 1.2,
     textAlign: "right",
   },
 
@@ -445,15 +539,50 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
 
+  actionSubcopy: {
+    color: theme.colors.textMuted,
+    marginTop: 10,
+    fontSize: theme.font.size.sm,
+    fontWeight: "600",
+    lineHeight: 21,
+  },
+
+  actionGroup: {
+    marginTop: theme.spacing.lg,
+  },
+
+  actionBlock: {
+    marginTop: theme.spacing.md,
+  },
+
+  buttonGap: {
+    height: 12,
+  },
+
   meta: {
     color: theme.colors.textMuted,
     marginTop: 10,
     fontSize: theme.font.size.sm,
     fontWeight: "700",
+    lineHeight: 20,
+  },
+
+  errorTitle: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.md,
+    fontWeight: "800",
+    marginBottom: 6,
   },
 
   errorText: {
     color: "#ff6b6b",
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+
+  emptyTitle: {
+    color: theme.colors.text,
+    fontSize: theme.font.size.lg,
     fontWeight: "800",
   },
 });

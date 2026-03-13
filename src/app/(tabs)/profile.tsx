@@ -1,4 +1,3 @@
-// app/(tabs)/profile.tsx
 import * as ImagePicker from "expo-image-picker";
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -14,13 +13,13 @@ import {
   View,
 } from "react-native";
 
-import { Card } from "../../src/components/Card";
-import { PrimaryButton } from "../../src/components/PrimaryButton";
-import { Screen } from "../../src/components/Screen";
-import { theme } from "../../src/constants/theme";
+import { Card } from "../../components/Card";
+import { PrimaryButton } from "../../components/PrimaryButton";
+import { Screen } from "../../components/Screen";
+import { theme } from "../../constants/theme";
 
-import { ApiError, updateProfile } from "../../src/lib/supabase";
-import { useSession } from "../../src/session/SessionContext";
+import { ApiError, updateProfile } from "../../lib/supabase";
+import { useSession } from "../../session/SessionContext";
 
 type ProfileDraft = {
   firstName: string;

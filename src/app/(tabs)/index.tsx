@@ -1,33 +1,27 @@
-// app/(tabs)/index.tsx
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
-import { Card } from "../../src/components/Card";
-import { PrimaryButton } from "../../src/components/PrimaryButton";
-import { Screen } from "../../src/components/Screen";
-import { WorkoutCalendar } from "../../src/components/WorkoutCalendar";
-import { theme } from "../../src/constants/theme";
+import { Card } from "../../components/Card";
+import { PrimaryButton } from "../../components/PrimaryButton";
+import { Screen } from "../../components/Screen";
+import { WorkoutCalendar } from "../../components/WorkoutCalendar";
+import { theme } from "../../constants/theme";
 
 import {
   getActiveWorkoutSession,
   listWorkoutSessions,
   startWorkoutSession,
-} from "../../src/lib/workouts";
-import type { WorkoutSession } from "../../src/lib/workouts";
+} from "../../lib/workouts";
+import type { WorkoutSession } from "../../lib/workouts";
 
-import { listPlansForRange } from "../../src/lib/plans";
-import type { PlannedWorkout } from "../../src/lib/plans";
+import { listPlansForRange } from "../../lib/plans";
+import type { PlannedWorkout } from "../../lib/plans";
 
-import { useSession } from "../../src/session/SessionContext";
+import { useSession } from "../../session/SessionContext";
 
 // plan drawer
-import { PlanDayDrawer } from "../../src/plans/PlanDayDrawer";
+import { PlanDayDrawer } from "../../plans/PlanDayDrawer";
 
 function formatActivityType(v?: string | null) {
   if (!v) return "—";
@@ -394,9 +388,7 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.label}>Weekly minutes</Text>
             <Text style={styles.value}>{metrics.minutesThisWeek}</Text>
-            <Text style={styles.meta}>
-              of {metrics.weeklyGoalMin} min goal
-            </Text>
+            <Text style={styles.meta}>of {metrics.weeklyGoalMin} min goal</Text>
           </View>
 
           <View style={styles.pill}>
@@ -451,7 +443,9 @@ export default function HomeScreen() {
 
             <View style={styles.actionTopSpace}>
               <PrimaryButton
-                label={todaySession.ended_at ? "View Session" : "Continue Session"}
+                label={
+                  todaySession.ended_at ? "View Session" : "Continue Session"
+                }
                 onPress={onOpenTodaySession}
               />
             </View>

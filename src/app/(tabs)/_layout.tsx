@@ -1,6 +1,6 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../../src/constants/theme";
+import { theme } from "../../constants/theme";
 
 export default function TabsLayout() {
   return (
@@ -28,7 +28,11 @@ export default function TabsLayout() {
         options={{
           title: "Dashboard",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? "grid" : "grid-outline"} size={size} color={color} />
+            <Ionicons
+              name={focused ? "grid" : "grid-outline"}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
@@ -37,7 +41,11 @@ export default function TabsLayout() {
         options={{
           title: "Workouts",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? "barbell" : "barbell-outline"} size={size} color={color} />
+            <Ionicons
+              name={focused ? "barbell" : "barbell-outline"}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
@@ -46,7 +54,11 @@ export default function TabsLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? "person" : "person-outline"} size={size} color={color} />
+            <Ionicons
+              name={focused ? "person" : "person-outline"}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />

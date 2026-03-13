@@ -1,4 +1,3 @@
-// app/register.tsx
 import React, { useMemo, useState } from "react";
 import {
   Text,
@@ -12,11 +11,11 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 
-import { Screen } from "../src/components/Screen";
-import { Card } from "../src/components/Card";
-import { PrimaryButton } from "../src/components/PrimaryButton";
-import { theme } from "../src/constants/theme";
-import { useSession } from "../src/session/SessionContext";
+import { Screen } from "../components/Screen";
+import { Card } from "../components/Card";
+import { PrimaryButton } from "../components/PrimaryButton";
+import { theme } from "../constants/theme";
+import { useSession } from "../session/SessionContext";
 
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -60,7 +59,6 @@ export default function RegisterScreen() {
         email: normalizedEmail,
         password: password.trim(),
       });
-      // Session guard will handle routing
     } catch (e: any) {
       console.log("[register] error:", e);
       setError((e?.message ?? "Registration failed").toString());
@@ -171,7 +169,7 @@ const styles = StyleSheet.create({
   cardWrapper: {
     width: "100%",
     maxWidth: 420,
-    transform: [{ translateY: -40 }], // 👈 Moves card slightly up
+    transform: [{ translateY: -40 }],
   },
 
   title: {

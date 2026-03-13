@@ -1,11 +1,10 @@
-// app/_layout.tsx
 import React from "react";
 import { DarkTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
-import { SessionProvider } from "../src/session/SessionContext";
-import { theme } from "../src/constants/theme";
+import { SessionProvider } from "../session/SessionContext";
+import { theme } from "../constants/theme";
 
 const navigationTheme = {
   ...DarkTheme,

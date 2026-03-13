@@ -1,17 +1,16 @@
-// app/workout/start.tsx
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
-import { Card } from "../../src/components/Card";
-import { PrimaryButton } from "../../src/components/PrimaryButton";
-import { Screen } from "../../src/components/Screen";
-import { theme } from "../../src/constants/theme";
+import { Card } from "../../components/Card";
+import { PrimaryButton } from "../../components/PrimaryButton";
+import { Screen } from "../../components/Screen";
+import { theme } from "../../constants/theme";
 
-import { getActiveWorkoutSession } from "../../src/lib/workouts";
-import { createWorkoutSessionFromTemplate } from "../../src/lib/workouts.mutations";
+import { getActiveWorkoutSession } from "../../lib/workouts";
+import { createWorkoutSessionFromTemplate } from "../../lib/workouts.mutations";
 
-import { useSession } from "../../src/session/SessionContext";
+import { useSession } from "../../session/SessionContext";
 
 function getErrMsg(e: unknown, fallback: string) {
   if (typeof e === "string") return e;

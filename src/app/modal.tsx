@@ -1,8 +1,8 @@
 import React from "react";
 import { Text, StyleSheet } from "react-native";
-import { Screen } from "../src/components/Screen";
-import { Card } from "../src/components/Card";
-import { theme } from "../src/constants/theme";
+import { Screen } from "../components/Screen";
+import { Card } from "../components/Card";
+import { theme } from "../constants/theme";
 
 export default function ModalScreen() {
   return (

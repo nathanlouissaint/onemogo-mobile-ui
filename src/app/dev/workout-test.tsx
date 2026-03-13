@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { View, Text, Button, StyleSheet } from "react-native";
-import { Screen } from "../../src/components/Screen";
-import { useSession } from "../../src/session/SessionContext";
-import { startWorkout, stopWorkout } from "../../src/lib/workouts";
+import { Screen } from "../../components/Screen";
+import { useSession } from "../../session/SessionContext";
+import { startWorkout, stopWorkout } from "../../lib/workouts";
 
 export default function WorkoutTestScreen() {
   const { user } = useSession();
